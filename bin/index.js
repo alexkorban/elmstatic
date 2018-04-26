@@ -195,22 +195,22 @@ function generateFeed(outputPath, config, posts) {
     Fs.writeFileSync(outputPath, feed.rss2())
 }
 
-// () -> ()/Effects 
-function generateHtml() {
-    const templateHtml = Fs.readFileSync("template.html").toString()
-    const config = JSON.parse(Fs.readFileSync("config.json").toString())
+// String -> Promise/Effects
+function generateCss(outputDir) {
+    console.log("Generating global styles...")
+    return elmStaticHtml(process.cwd(), [{viewFunction: `Styles.styles`, fileOutputName: Path.join(outputDir, "css")}])
+    .then ((genStyles) => {
+        const genStyle = genStyles[0]
+        console.log(`  Writing ${Path.join(genStyle.fileOutputName, "default.css")}`)
+        Fs.mkdirsSync(genStyle.fileOutputName)
+        Fs.writeFileSync(Path.join(genStyle.fileOutputName, "default.css"), genStyle.generatedHtml)
+    })
+}
+
+// String -> String -> Promise/Effects
+function generateHtml(config) {
     const {outputDir, siteTitle} = config
-
-    const dotGitPath = Path.join(outputDir, ".git")
-    const dotGitContent = Fs.pathExistsSync(dotGitPath) ? Fs.readFileSync(Path.join(outputDir, ".git")).toString() : null
-
-    console.log(`Cleaning out the output path (${outputDir})...`)
-    Fs.emptyDirSync(outputDir)
-
-    if (R.is(String, dotGitContent))
-        Fs.writeFileSync(dotGitPath, dotGitContent)
-    else 
-        ; // Do nothing, no .git file existed
+    const templateHtml = Fs.readFileSync("template.html").toString()
 
     const allPages = R.pipe(
         dropExtensions
@@ -218,7 +218,6 @@ function generateHtml() {
     )(Glob.sync("Pages/**/*.elm"))
 
     console.log("All pages", allPages)
-
     console.log("Configuring HTML output...")
 
     const pageConfigs = generatePageConfigs(outputDir, R.reject(R.test(/(Index|Post(s?))$/), allPages))
@@ -232,10 +231,9 @@ function generateHtml() {
     const allConfigs = R.flatten([pageConfigs, postConfigs, postListPageConfig, tagPageConfigs, sectionPageConfigs])
 
     console.log("Generating HTML...")
-
     console.log("  HTML file count:", allConfigs.length)
 
-    elmStaticHtml(process.cwd(), allConfigs)
+    return elmStaticHtml(process.cwd(), allConfigs)
     .then((genHtmls) => {
         console.log("Writing HTML to files...")
         R.forEach((genHtml) => {
@@ -268,10 +266,7 @@ function generateHtml() {
         Fs.copySync("Resources", outputDir)
 
         console.log("Done!")    
-    })
-    .catch((error) => {
-        console.error("Encountered a problem: ", error)
-    })
+    })    
 }
 
 
@@ -294,7 +289,25 @@ function printHelp() {
 // ACTION STARTS HERE
 
 if (process.argv.length < 3) {
-    generateHtml()
+    const config = JSON.parse(Fs.readFileSync("config.json").toString())
+    const {outputDir, siteTitle} = config
+
+    const dotGitPath = Path.join(outputDir, ".git")
+    const dotGitContent = Fs.pathExistsSync(dotGitPath) ? Fs.readFileSync(Path.join(outputDir, ".git")).toString() : null
+
+    console.log(`Cleaning out the output path (${outputDir})...`)
+    Fs.emptyDirSync(outputDir)
+
+    if (R.is(String, dotGitContent))
+        Fs.writeFileSync(dotGitPath, dotGitContent)
+    else 
+        ; // Do nothing, no .git file existed
+    
+    generateCss(outputDir)
+    .then(() => generateHtml(config))
+    .catch((error) => {
+        console.error("Encountered a problem: ", error)
+    })
 }
 else if (process.argv[2] == "init") {
     generateScaffold()
