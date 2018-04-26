@@ -203,7 +203,7 @@ function generateCss(outputDir) {
         const genStyle = genStyles[0]
         console.log(`  Writing ${Path.join(genStyle.fileOutputName, "default.css")}`)
         Fs.mkdirsSync(genStyle.fileOutputName)
-        Fs.writeFileSync(Path.join(genStyle.fileOutputName, "default.css"), genStyle.generatedHtml)
+        Fs.writeFileSync(Path.join(genStyle.fileOutputName, "default.css"), R.slice(8, -9, genStyle.generatedHtml))
     })
 }
 
