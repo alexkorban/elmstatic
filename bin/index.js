@@ -183,12 +183,12 @@ function generateFeed(outputPath, config, posts) {
         const section = R.isEmpty(post.section) || config.isSectionFeed ? "" : R.toLower(post.section) + "/"
         const id = config.link + "/" + section + post.date + "-" + post.slug
         feed.addItem({
-            title: post.title,
-            id: id,
-            link: id,
-            description: post.description || post.excerpt,
-            author: [config.author],
-            date: new Date(post.date)
+              title: post.title
+            , id: id
+            , link: id
+            , description: post.description || post.excerpt
+            , author: [config.author]
+            , date: new Date(post.date)
         })        
     }, posts)
     
@@ -213,7 +213,7 @@ function generateHtml(config) {
     const templateHtml = Fs.readFileSync("template.html").toString()
 
     const allPages = R.pipe(
-        dropExtensions
+          dropExtensions
         , replaceSlashesWithDots
     )(Glob.sync("Pages/**/*.elm"))
 
@@ -252,7 +252,7 @@ function generateHtml(config) {
             console.log(`  Writing ${Path.join(outputDir, R.toLower(section), "rss.xml")}`)
             generateFeed(Path.join(outputDir, R.toLower(section), "rss.xml")
                 , R.evolve({
-                        title: R.concat(R.__, `/${R.toLower(section)}`)
+                          title: R.concat(R.__, `/${R.toLower(section)}`)
                         , id: R.concat(R.__, `/${R.toLower(section)}`)
                         , link: R.concat(R.__, `/${R.toLower(section)}`)
                     }, R.merge(config.feed, {isSectionFeed: true}))
@@ -279,10 +279,11 @@ function generateScaffold() {
 
 // () -> ()/Effects
 function printHelp() {
-    R.forEach(console.log, [ "Usage\n:"
+    R.forEach(console.log, [ "Usage:\n"
         , "Elmstatic has to be run from the blog directory\n"
         , "$ elmstatic       -> generate HTML for an existing blog in the specified output directory"
-        , "$ elmstatic init  -> generate a scaffold for a new blog in the current directory"
+        , "$ elmstatic init  -> generate a scaffold for a new blog in the current directory\n"
+        , "See https://korban.net/elm/elmstatic for more information"
     ])
 }
 
