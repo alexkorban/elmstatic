@@ -289,6 +289,14 @@ function printHelp() {
 // ACTION STARTS HERE
 
 if (process.argv.length < 3) {
+    try {
+        Fs.accessSync("config.json", Fs.constants.R_OK)
+    } 
+    catch (err) {
+        console.error("Couldn't find config.json. Is this a new project? Run `elmstatic init` to generate a scaffold.")
+        return
+    }
+
     const config = JSON.parse(Fs.readFileSync("config.json").toString())
     const {outputDir, siteTitle} = config
 

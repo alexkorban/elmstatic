@@ -317,9 +317,8 @@ title t =
 
 markdown : String -> Element PageStyles v msg
 markdown content =
-    el None [] <|
-        Element.html <|
-            Html.div [ Html.Attributes.class "markdown" ] (Markdown.toHtml Nothing content)
+    Element.html <|
+        Html.div [ Html.Attributes.class "markdown" ] (Markdown.toHtml Nothing content)
 
 
 tagsToHtml : List Tag -> Element PageStyles v msg

@@ -9,7 +9,7 @@ It allows you to write pages in Elm, and blog posts in Markdown.
 
 # This is an example of a post
 
-Code is highlighted using Highlight.js: 
+Code is highlighted using [Highlight.js](http://highlightjs.org): 
 
 ```
 view : Header v m -> List (Element PageStyles v m) -> Html.Html m
