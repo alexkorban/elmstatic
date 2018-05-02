@@ -2,6 +2,7 @@
   "name": "elmstatic",
   "version": "0.2.3",
   "description": "Elm-to-HTML static site generator",
+  "homepage": "https://korban.net/elm/elmstatic",
   "repository": "github:SupremumLimit/elmstatic",
   "bin": {
     "elmstatic": "./bin/index.js"
