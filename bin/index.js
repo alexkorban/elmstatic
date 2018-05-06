@@ -207,7 +207,7 @@ function generateCss(outputDir) {
     })
 }
 
-// String -> String -> Promise/Effects
+// Config -> Promise/Effects
 function generateHtml(config) {
     const {outputDir, siteTitle} = config
     const templateHtml = Fs.readFileSync("template.html").toString()
@@ -220,7 +220,7 @@ function generateHtml(config) {
     console.log("All pages", allPages)
     console.log("Configuring HTML output...")
 
-    const pageConfigs = generatePageConfigs(outputDir, R.reject(R.test(/(Index|Post(s?))$/), allPages))
+    const pageConfigs = generatePageConfigs(outputDir, R.reject(R.test(/Post(s?)$/), allPages))
     const postConfigs = generatePostConfigs(outputDir, Glob.sync("Posts/**/*.md"))
     const posts = R.map(R.prop("model"), postConfigs)
     const postListPageConfig = generatePostListPageConfig(outputDir, posts)
@@ -237,10 +237,12 @@ function generateHtml(config) {
     .then((genHtmls) => {
         console.log("Writing HTML to files...")
         R.forEach((genHtml) => {
-            console.log(`  Writing ${Path.join(genHtml.fileOutputName, "index.html")}`)
+            const fileName = R.endsWith("index", genHtml.fileOutputName) ? 
+                genHtml.fileOutputName + ".html" : Path.join(genHtml.fileOutputName, "index.html")
+
+            console.log(`  Writing ${fileName}`)
             Fs.mkdirsSync(genHtml.fileOutputName)
-            Fs.writeFileSync(Path.join(genHtml.fileOutputName, "index.html")
-                , fullPageHtml(templateHtml, {title: siteTitle, content: genHtml.generatedHtml}))
+            Fs.writeFileSync(fileName, fullPageHtml(templateHtml, {title: siteTitle, content: genHtml.generatedHtml}))
         }, genHtmls)
 
         console.log("Generating RSS feeds...")
@@ -259,9 +261,6 @@ function generateHtml(config) {
                 , getPostsWithTag(section, posts))    
         }, sections)
 
-        console.log("Generating index page...")
-        Fs.copySync(Path.join(outputDir, config.index, "index.html"), Path.join(outputDir, "index.html"))
-
         console.log("Copying resources...")
         Fs.copySync("Resources", outputDir)
 
@@ -269,6 +268,13 @@ function generateHtml(config) {
     })    
 }
 
+// Config -> ()/Effects
+function copyPages(config) {
+    console.log("Copying pages...")
+    R.forEachObjIndexed((dest, source) => {
+        Fs.copySync(Path.join(config.outputDir, source), Path.join(config.outputDir, dest))
+    }, config.copy)
+}
 
 // () -> ()/Effects
 function generateScaffold() {
@@ -314,6 +320,7 @@ if (process.argv.length < 3) {
     
     generateCss(outputDir)
     .then(() => generateHtml(config))
+    .then(() => copyPages(config))
     .catch((error) => {
         console.error("Encountered a problem: ", error)
     })

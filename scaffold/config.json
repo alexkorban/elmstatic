@@ -1,7 +1,9 @@
 {
     "siteTitle": "Author's fancy blog",
     "outputDir": "output",
-    "index": "posts",
+    "copy": {
+        "/posts": "/"
+    },
     "feed": {
         "title": "Author's fancy blog",
         "description": "Author's blog posts",
