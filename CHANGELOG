@@ -1,8 +1,8 @@
-0.3.0 (2018-05-07)
+0.3.1 (2018-05-07)
 
-Add support for sections (Pages/Section/About.elm rendered to /section/about)
-Add support for index pages (Pages/Index.elm rendered to /, Pages/Section/Index.elm rendered to /section)
-Allow specifying a posprocessing page copy step in config.json (eg to make /projects available as /work as well)
+* Add support for sections (Pages/Section/About.elm rendered to /section/about)
+* Add support for index pages (Pages/Index.elm rendered to /, Pages/Section/Index.elm rendered to /section)
+* Allow specifying a posprocessing page copy step in config.json (eg to make /projects available as /work as well)
 
 0.2.4 (2018-05-03)
 
