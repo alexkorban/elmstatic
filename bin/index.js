@@ -263,8 +263,6 @@ function generateHtml(config) {
 
         console.log("Copying resources...")
         Fs.copySync("Resources", outputDir)
-
-        console.log("Done!")    
     })    
 }
 
@@ -321,6 +319,7 @@ if (process.argv.length < 3) {
     generateCss(outputDir)
     .then(() => generateHtml(config))
     .then(() => copyPages(config))
+    .then(() => console.log("Done!"))
     .catch((error) => {
         console.error("Encountered a problem: ", error)
     })
