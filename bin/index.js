@@ -22,7 +22,7 @@ function dropExtension (fileName) {
 const dropExtensions = R.map(dropExtension)
 
 // String -> String
-const slashesToDots = R.replace(new RegExp(Path.sep, "g"), ".")
+const slashesToDots = R.replace(new RegExp("/", "g"), ".")  
 // [String] -> String
 const replaceSlashesWithDots = R.map(slashesToDots)
 
