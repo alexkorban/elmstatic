@@ -196,9 +196,10 @@ function generateFeed(outputPath, config, posts) {
 }
 
 // String -> Promise/Effects
-function generateCss(outputDir) {
+function generateCss(outputDir, elmPath) {
     console.log("Generating global styles...")
-    return elmStaticHtml(process.cwd(), [{viewFunction: `Styles.styles`, fileOutputName: Path.join(outputDir, "css")}])
+    return elmStaticHtml(process.cwd(), [{viewFunction: `Styles.styles`, fileOutputName: Path.join(outputDir, "css")}]
+        , false, elmPath)
     .then ((genStyles) => {
         const genStyle = genStyles[0]
         console.log(`  Writing ${Path.join(genStyle.fileOutputName, "default.css")}`)
@@ -208,8 +209,8 @@ function generateCss(outputDir) {
 }
 
 // Config -> Promise/Effects
-function generateHtml(config) {
-    const {outputDir, siteTitle} = config
+function generateHtml(config, elmPath) {
+    const {outputDir, siteTitle, elm} = config
     const templateHtml = Fs.readFileSync("template.html").toString()
 
     const allPages = R.pipe(
@@ -233,7 +234,7 @@ function generateHtml(config) {
     console.log("Generating HTML...")
     console.log("  HTML file count:", allConfigs.length)
 
-    return elmStaticHtml(process.cwd(), allConfigs)
+    return elmStaticHtml(process.cwd(), allConfigs, false, elmPath)
     .then((genHtmls) => {
         console.log("Writing HTML to files...")
         R.forEach((genHtml) => {
@@ -303,7 +304,9 @@ if (process.argv.length < 3) {
     }
 
     const config = JSON.parse(Fs.readFileSync("config.json").toString())
-    const {outputDir, siteTitle} = config
+    const {outputDir, siteTitle, elm} = config
+
+    const elmPath = typeof elm !== "undefined" ? Path.join(process.cwd(), elm) : "elm-make"
 
     const dotGitPath = Path.join(outputDir, ".git")
     const dotGitContent = Fs.pathExistsSync(dotGitPath) ? Fs.readFileSync(Path.join(outputDir, ".git")).toString() : null
@@ -316,8 +319,8 @@ if (process.argv.length < 3) {
     else 
         ; // Do nothing, no .git file existed
     
-    generateCss(outputDir)
-    .then(() => generateHtml(config))
+    generateCss(outputDir, elmPath)
+    .then(() => generateHtml(config, elmPath))
     .then(() => copyPages(config))
     .then(() => console.log("Done!"))
     .catch((error) => {

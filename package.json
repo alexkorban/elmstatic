@@ -1,6 +1,6 @@
 {
   "name": "elmstatic",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Elm-to-HTML static site generator",
   "homepage": "https://korban.net/elm/elmstatic",
   "repository": "github:SupremumLimit/elmstatic",

@@ -1,3 +1,7 @@
+0.3.4 (2018-09-19)
+
+* Allow elm-make path to be specified in config.json
+
 0.3.3 (2018-05-09)
 
 * Fix generator so it generates the site on Windows
