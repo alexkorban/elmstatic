@@ -1,3 +1,14 @@
+0.4.0 (2019-04-10)
+
+WARNING: This release is not backwards compatible with the previous release. The expected directory and
+file structure of the site has changed. If you'd like to continue using the existing site, stick with 
+v0.3.4 and Elm 0.18.
+
+* Upgrade to Elm 0.19 and switch to JSDom for HTML generation
+* Rework the directory structure and scaffold
+* Generate all of the HTML via Elm - no more template.html 
+* Switch from elm-ui to plain CSS/elm-css 
+
 0.3.4 (2018-09-19)
 
 * Allow elm-make path to be specified in config.json

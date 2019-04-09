@@ -1,6 +1,6 @@
 {
     "siteTitle": "Author's fancy blog",
-    "outputDir": "output",
+    "outputDir": "_site",
     "copy": {
         "/posts": "/"
     },
@@ -17,5 +17,6 @@
           "name": "Author",
           "link": "https://example.com/about"
         }        
-    }
+    },
+    "tags": ["other", "software"]
 }
