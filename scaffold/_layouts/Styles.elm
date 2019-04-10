@@ -7,16 +7,15 @@ import Html exposing (Html)
 import Html.Styled
 
 
-codeStyle =
-    [ fontFamilies [ "Inconsolata", .value monospace ]
-    ]
-
-
 styles : Html msg
 styles =
     let
         wideScreen =
             withMedia [ only screen [ Media.minWidth <| Css.px 600 ] ]
+
+        codeStyle =
+            [ fontFamilies [ "Inconsolata", .value monospace ]
+            ]
     in
     global
         [ body
