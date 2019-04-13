@@ -147,35 +147,41 @@ function parsePostFileName(outputPath, postFileName) {
     }
 }
 
-// String -> String -> [String] -> [String] -> [PostConfig]/Effects
-function generatePostConfigs(outputPath, siteTitle, allowedTags, postFileNames) {
-    const postConfigs = R.map((postFileName) => {
-        const outputFileName = R.tail(postFileName)  // Remove leading underscore 
-        const contents = Fs.readFileSync(Fs.realpathSync(postFileName)).toString()
-        const mdAttrs = parseMarkdown(contents)
-        const fileNameAttrs = parsePostFileName(outputPath, outputFileName)
-        const isIndex = R.endsWith("index.md", outputFileName)
+// String -> String -> [String] -> Bool -> [String] -> [PostConfig]/Effects
+function generatePostConfigs(outputPath, siteTitle, allowedTags, includeDrafts, postFileNames) {
+    const draftFilter = includeDrafts ? R.identity : 
+        (postConfig) => postConfig.isIndex || new Date(postConfig.date) <= new Date()
 
-        if (!R.isEmpty(allowedTags) && !R.isNil(mdAttrs.tags)) {
-            const invalidTags = R.difference(R.map(R.toLower, mdAttrs.tags), allowedTags)
-            if (!R.isEmpty(invalidTags))
-                throw new Error(`Invalid tags [${invalidTags.join(", ")}] found in ${postFileName}`)
+    const postConfigs = R.pipe(
+          R.map((postFileName) => {
+            const outputFileName = R.tail(postFileName)  // Remove leading underscore 
+            const contents = Fs.readFileSync(Fs.realpathSync(postFileName)).toString()
+            const mdAttrs = parseMarkdown(contents)
+            const fileNameAttrs = parsePostFileName(outputPath, outputFileName)
+            const isIndex = R.endsWith("index.md", outputFileName)
+
+            if (!R.isEmpty(allowedTags) && !R.isNil(mdAttrs.tags)) {
+                const invalidTags = R.difference(R.map(R.toLower, mdAttrs.tags), allowedTags)
+                if (!R.isEmpty(invalidTags))
+                    throw new Error(`Invalid tags [${invalidTags.join(", ")}] found in ${postFileName}`)
+                else 
+                    ; // All post tags are valid
+            }
             else 
-                ; // All post tags are valid
-        }
-        else 
-            ; // Don't do tag validation if allowed tags are not defined or the post has no tags
+                ; // Don't do tag validation if allowed tags are not defined or the post has no tags
 
-        return R.pipe(
-              R.merge(R.__, mdAttrs)
-            , R.merge({siteTitle: appendTitle(siteTitle, mdAttrs.title)})
-            , R.evolve({
-                tags: R.pipe(R.append(fileNameAttrs.section), R.reject(R.isEmpty))
-            })
-            , R.merge(fileNameAttrs)
-        )({layout: isIndex ? "Posts" : "Post"})           
-    }, postFileNames)
-
+            return R.pipe(
+                R.merge(R.__, mdAttrs)
+                , R.merge({siteTitle: appendTitle(siteTitle, mdAttrs.title)})
+                , R.evolve({
+                    tags: R.pipe(R.append(fileNameAttrs.section), R.reject(R.isEmpty))
+                })
+                , R.merge(fileNameAttrs)
+            )({layout: isIndex ? "Posts" : "Post"})
+          })           
+        , R.filter(draftFilter)
+    )(postFileNames)
+    
     return R.map((postConfig) => {
         if (postConfig.isIndex) {
             const filter = R.isEmpty(postConfig.section) ? 
@@ -186,7 +192,7 @@ function generatePostConfigs(outputPath, siteTitle, allowedTags, postFileNames) 
         else {
             return postConfig
         }
-    }, postConfigs) 
+    }, postConfigs)
 }
 
 // String -> PageConfig | PostConfig -> Promise<HtmlString>
@@ -324,7 +330,15 @@ function printHelp() {
 
 // ACTION STARTS HERE
 
-if (process.argv.length < 3) {
+let mode = "help"
+if (process.argv.length < 3)
+    mode = "generate"
+else if (process.argv[2] == "init")
+    mode = "init"
+else if (process.argv[2] == "draft")
+    mode = "draft"
+
+if (mode == "generate" || mode == "draft") {
     try {
         Fs.accessSync("config.json", Fs.constants.R_OK)
     } 
@@ -336,6 +350,7 @@ if (process.argv.length < 3) {
     const config = JSON.parse(Fs.readFileSync("config.json").toString())
     const {copy, feed, elm, outputDir, siteTitle} = config
     const allowedTags = R.map(R.toLower, R.defaultTo([], config.tags))
+    const includeDrafts = (mode == "draft")
 
     try {            
         console.log(`Compiling layouts...`)
@@ -343,7 +358,7 @@ if (process.argv.length < 3) {
 
         console.log(`Reading .md files...`)
         const pageConfigs = generatePageConfigs(outputDir, siteTitle, Glob.sync("**/*.md", {cwd: "_pages"}))
-        const postConfigs = generatePostConfigs(outputDir, siteTitle, allowedTags, Glob.sync("_posts/**/*.md"))
+        const postConfigs = generatePostConfigs(outputDir, siteTitle, allowedTags, includeDrafts, Glob.sync("_posts/**/*.md"))
         const tagPageConfigs = generateTagPageConfigs(outputDir, siteTitle, postConfigs)
 
         const dotGitPath = Path.join(outputDir, ".git")
@@ -376,7 +391,7 @@ if (process.argv.length < 3) {
         console.log(err.message)
     }
 } 
-else if (process.argv[2] == "init") {
+else if (mode == "init") {
     generateScaffold()
 }
 else {
