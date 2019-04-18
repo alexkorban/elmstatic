@@ -308,7 +308,10 @@ function generateFeeds(feedConfig, outputPath, postConfigs) {
 function duplicatePages(config, outputPath) {
     console.log("Duplicating pages...")
     R.forEachObjIndexed((dest, source) => {
-        Fs.copySync(Path.join(outputPath, source), Path.join(outputPath, dest))
+        if (Fs.pathExistsSync(source) && Fs.pathExistsSync(dest)) {
+            Fs.copySync(Path.join(outputPath, source), Path.join(outputPath, dest))
+        }
+        else ; // do nothing
     }, config)
 }
 
