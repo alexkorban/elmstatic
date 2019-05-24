@@ -8,7 +8,7 @@ const Promise = require("bluebird")
 const R = require("ramda")
 const {Script} = require("vm")
 const removeMarkdown = require("remove-markdown")
-const {spawnSync} = require("child_process")
+const {spawn} = require("cross-spawn")
 
 // String -> ()/Effects
 function buildLayouts(elmPath) {
@@ -17,7 +17,7 @@ function buildLayouts(elmPath) {
     let args = ["make", layouts, "--optimize", "--output", "elm.js"]
 
     console.log(`  $ ${command} ${R.flatten(args).join(" ")}`)
-    const res = spawnSync(command, R.flatten(args), { stdio: 'inherit' })
+    const res = spawn.sync(command, R.flatten(args), { stdio: 'inherit' })
     if (res.status != 0)
         throw new Error(res.error)
     else
@@ -320,12 +320,16 @@ function generateScaffold() {
 
 // () -> ()/Effects
 function printHelp() {
-    R.forEach(console.log, [ "Usage:\n"
+    const {version} = JSON.parse(Fs.readFileSync(Path.join(__dirname, "..", "package.json")).toString()) 
+    R.forEach(console.log, 
+        [ "Elmstatic v" + version + "\n"
+        , "Usage:\n"
         , "Elmstatic has to be run from the site directory\n"
         , "$ elmstatic       -> generate HTML for an existing site in the specified output directory"
+        , "$ elmstatic draft -> same as above, but including future-dated draft posts"
         , "$ elmstatic init  -> generate a scaffold for a new site in the current directory\n"
         , "See https://korban.net/elm/elmstatic for more information"
-    ])
+        ])
 }
 
 // ACTION STARTS HERE
