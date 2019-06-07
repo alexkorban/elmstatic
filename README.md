@@ -10,5 +10,6 @@ There are a couple of sites that I'm aware of:
 
 - [korban.net](https://korban.net/elm) (my site)
 - [programming-elm.com](https://programming-elm.com) (Site for the Programming Elm book)
+- [canena.de](http://canena.de)
 
 Do you have a public Elmstatic site? Please [contact me](https://korban.net/elm/contact) and let me know so I can add it here!
