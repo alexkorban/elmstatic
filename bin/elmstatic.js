@@ -393,6 +393,7 @@ if (mode == "generate" || mode == "draft") {
         .then(() => console.log("Done!"))
     } catch (err) {
         console.log(err.message)
+        process.exitCode = 1
     }
 } 
 else if (mode == "init") {
