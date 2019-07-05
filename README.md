@@ -2,7 +2,7 @@
 
 Elmstatic is an Elm-to-HTML static site generator. 
 
-For more information: https://korban.net/elm/elmstatic
+More information and docs: https://korban.net/elm/elmstatic
 
 ## Who is using this? 
 
