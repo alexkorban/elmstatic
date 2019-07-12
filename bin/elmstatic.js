@@ -34,7 +34,7 @@ function buildLayouts(elmPath) {
     log.info(`  $ ${command} ${R.flatten(args).join(" ")}`)
     const res = spawn.sync(command, R.flatten(args), { stdio: 'inherit' })
     if (res.status != 0)
-        throw new Error(res.error)
+        throw new Error("")
     else
         return Fs.readFileSync("elm.js").toString()
 }
@@ -442,13 +442,17 @@ function buildSiteAndWatch(options) {
             const result = generateEverything(layoutsChanged ? [] : pages, layoutsChanged ? [] : posts, options)
             pages = result.pages
             posts = result.posts
-    
             log("Ready! Watching for more changes...")    
         }
         catch (err) {
-            log.error(err.message) 
-            process.exit(1)
+            if (!R.isEmpty(err.message)) {
+                log.error(err.message) 
+            }
+            else
+                ; // No message means it's an elm make error, so it's already printed
+            log("Error! Watching for more changes...")    
         }
+        
     }))
 }
 
@@ -508,6 +512,9 @@ try {
         flags.parse(process.argv)  // This invokes command & option callbacks 
 }    
 catch (err) {
-    log.error(err.message)
+    if (!R.isEmpty(err.message))
+        log.error(err.message)
+    else 
+        ; // No message means it's an elm make error, so it's already printed
     process.exitCode = 1
 }
