@@ -1,3 +1,16 @@
+0.5.1 (2019-07-12)
+
+* Stop watch mode terminating on errors
+
+0.5.0 (2019-07-08)
+
+* Add watch mode
+* Add -v/--verbose flag to control terminal output
+
+0.4.1 (2019-05-25)
+
+* Fix child process launch error on Windows
+
 0.4.0 (2019-04-10)
 
 WARNING: This release is not backwards compatible with the previous release. The expected directory and
