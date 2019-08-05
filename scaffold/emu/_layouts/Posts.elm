@@ -29,4 +29,4 @@ main =
     in
     Elmstatic.layout Elmstatic.decodePostList <|
         \content ->
-            Page.layout content.title <| postListContent <| sortPosts content.posts
+            Page.layout content.title <| Ok <| postListContent <| sortPosts content.posts

@@ -122,4 +122,4 @@ main : Elmstatic.Layout
 main =
     Elmstatic.layout Elmstatic.decodePage <|
         \content ->
-            layout content.title [ markdown content.markdown ]
+            Ok <| layout content.title [ markdown content.content ]

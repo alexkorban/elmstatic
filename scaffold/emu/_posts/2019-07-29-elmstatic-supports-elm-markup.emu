@@ -1,0 +1,54 @@
+|> Metadata
+    title = Elmstatic now supports elm-markup
+    tags = software other
+
+
+*Elmstatic* now supports `elm-markup`{name}!
+
+|> H2
+    Let's look at some /code/
+
+Code is highlighted using [Highlight.js]{link | url = https://highlightjs.org}: 
+
+|> Code
+    lang = elm
+    code =
+        view =
+            \contentJson ->
+                case Json.Decode.decodeValue decoder contentJson of
+                    Err error ->
+                        { title = "error"
+                        , body = [ Html.div [ attribute "error" <| Json.Decode.errorToString error ] [] ]
+                        }
+
+                    Ok content ->
+                        case view content of
+                            Err viewError ->
+                                { title = "error"
+                                , body = [ Html.div [ attribute "error" viewError ] [] ]
+                                }
+
+                            Ok viewHtml ->
+                                { title = ""
+                                , body = [ htmlTemplate content.siteTitle <| viewHtml ]
+                                }
+
+|> H2
+    What does a *list* look like?
+
+|> List
+    1.  This is definitely the first thing.
+        Add all together now
+        With some Content
+    -- Another thing.
+        1. sublist
+        -- more sublist
+            -- indented
+        -- other sublist
+            -- subthing
+            -- other subthing
+    -- and yet, another
+        --  and another one
+            with some content                    
+
+

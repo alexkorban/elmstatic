@@ -87,8 +87,7 @@ const parsePreamble = R.pipe(
     R.split("\n"),
     R.reject(R.isEmpty),
     R.map(parsePreambleLine),
-    R.fromPairs,
-    R.evolve({ tags: R.pipe(R.split(/\s+/), R.map(R.trim), R.reject(R.isEmpty)), title: unquote })
+    R.fromPairs
 )
 
 // String -> {[<key>: String]}
@@ -99,9 +98,37 @@ function parseMarkdown(contents) {
     return R.merge(parsePreamble(preamble), { excerpt, markdown: contentsWithoutPreamble })
 }
 
+// String -> {[<key>: String]}
+function parseElmMarkupPreamble(contents) {
+    const layoutMatches = R.match(/\|>\s*Metadata\s*/, contents)
+    const endOfPreamble = R.match(/\n\s*\n/, contents)
+    if (R.isEmpty(layoutMatches) || R.isEmpty(endOfPreamble)) {
+        return {}
+    }
+    else {
+        return R.pipe(
+            R.slice(R.length(layoutMatches[0]), endOfPreamble.index),
+            R.split(/\s*\n\s+/),
+            R.map(R.pipe(R.split(/\s*=\s*/), R.map(R.trim))),
+            R.fromPairs,
+            R.mergeAll
+        )(contents)
+    }        
+}
+
+// String -> {[<key>: String]}
+function parseElmMarkup(contents) {
+    const preamble = parseElmMarkupPreamble(contents)
+    return R.merge(preamble, { content: contents })
+}
+
 // String -> String -> {outputPath: String}
 function parsePageFileName(outputPath, pageFileName) {
-    return { outputPath: Path.join(outputPath, dropExtension(pageFileName)) }
+    return { 
+        inputPath: Path.join("_pages", pageFileName), 
+        outputPath: Path.join(outputPath, dropExtension(pageFileName)),
+        format: Path.extname(pageFileName) == ".md" ? "md" : "emu"
+    }
 }
 
 // String -> String/Effects
@@ -116,23 +143,27 @@ function readFile(unresolvedFileName) {
 // [PageConfig] ->  String -> String -> String -> HtmlPage/Effects
 const generatePageConfig = R.curry((pages, outputPath, siteTitle, pageFileName) => {
     const mtime = Fs.lstatSync(Path.join("_pages", pageFileName)).mtime
+    const ext = Path.extname(pageFileName)
     const existingPage = R.find(R.propEq("pageFileName", pageFileName), pages)
 
     if (R.isNil(existingPage) || mtime > existingPage.mtime) {
         const contents = readFile(Path.join("_pages", pageFileName))
-        let mdAttrs = parseMarkdown(contents)
+        let attrs = R.pipe(
+            ext == ".md" ? parseMarkdown : parseElmMarkup,
+            R.evolve({ title: unquote })
+        )(contents)
 
-        if (!R.isNil(mdAttrs.content)) {
-            const transcludedContents = readFile(Path.join("_pages", mdAttrs.content + ".md"))
-            const transcludedMdAttrs = parseMarkdown(transcludedContents)
-            mdAttrs = R.merge(mdAttrs, R.pick(["excerpt", "markdown"], transcludedMdAttrs))
+        if (!R.isNil(attrs.contentSource)) {
+            const transcludedContents = readFile(Path.join("_pages", attrs.contentSource + ext))
+            const transcludedAttrs = ext == ".md" ? parseMarkdown(transcludedContents) : parseElmMarkup(transcludedContents)
+            attrs = R.merge(attrs, R.pick(["content", "excerpt", "markdown"], transcludedAttrs))
         }
         else
             ; // Do nothing - the file doesn't link to another file's content
 
         return R.pipe(
-            R.merge(R.__, mdAttrs),
-            R.merge({ siteTitle: appendTitle(siteTitle, mdAttrs.title) }),
+            R.merge(R.__, attrs),
+            R.merge({ siteTitle: appendTitle(siteTitle, attrs.title) }),
             R.merge(parsePageFileName(outputPath, pageFileName))
         )({ layout: "Page", mtime, pageFileName })
     }
@@ -154,15 +185,16 @@ function parsePostFileName(outputPath, postFileName) {
     const section = R.equals(dirName, "posts") ? ""
         : R.slice(R.lastIndexOf(Path.sep, dirName) + 1, R.length(dirName), dirName)
 
-    if (R.endsWith("index.md", postFileName)) {
-        return { isIndex: true, section, outputPath: Path.join(outputPath, dirName) }
+    if (dropExtension(Path.basename(postFileName)) == "index") {
+        return { isIndex: true, section, inputPath: postFileName, outputPath: Path.join(outputPath, dirName) }
     }
     else {
         const date = R.take(10, Path.basename(postFileName))
         const slug = R.pipe(Path.basename, R.drop(11), dropExtension)(postFileName)
         const link = Path.join(dirName, date + "-" + slug)
+        const format = Path.extname(postFileName) == ".md" ? "md" : "emu"
 
-        return { isIndex: false, date, slug, link, section, outputPath: Path.join(outputPath, link) }
+        return { isIndex: false, date, slug, link, format, section, inputPath: postFileName, outputPath: Path.join(outputPath, link) }
     }
 }
 
@@ -174,18 +206,22 @@ function generatePosts(posts, elmJs, outputPath, siteTitle, allowedTags, include
     const postConfigs = R.pipe(
         R.map((postFileName) => {
             const mtime = Fs.lstatSync(Fs.realpathSync(postFileName)).mtime
+            const ext = Path.extname(postFileName)
             const existingPost = R.find(R.propEq("postFileName", postFileName), posts)
 
             if (R.isNil(existingPost) || mtime > existingPost.mtime || existingPost.isIndex) {
                 const outputFileName = R.tail(postFileName)  // Remove leading underscore 
                 const contents = Fs.readFileSync(Fs.realpathSync(postFileName)).toString()
-                const mdAttrs = parseMarkdown(contents)
+                const attrs = R.pipe(
+                    ext == ".md" ? parseMarkdown : parseElmMarkup,
+                    R.evolve({ tags: R.pipe(R.split(/\s+/), R.map(R.trim), R.reject(R.isEmpty)), title: unquote })
+                )(contents)
                 const fileNameAttrs = parsePostFileName(outputPath, outputFileName)
 
-                if (!R.isEmpty(allowedTags) && !R.isNil(mdAttrs.tags)) {
-                    const invalidTags = R.difference(R.map(R.toLower, mdAttrs.tags), allowedTags)
+                if (!R.isEmpty(allowedTags) && !R.isNil(attrs.tags)) {
+                    const invalidTags = R.difference(R.map(R.toLower, attrs.tags), allowedTags)
                     if (!R.isEmpty(invalidTags))
-                        throw new Error(`Invalid tags [${invalidTags.join(", ")}] found in ${postFileName}`)
+                        throw new Error(`Error in ${postFileName}:\nUndeclared tags: [${invalidTags.join(", ")}]\nYou can declare tags in config.json`)
                     else
                         ; // All post tags are valid
                 }
@@ -193,8 +229,8 @@ function generatePosts(posts, elmJs, outputPath, siteTitle, allowedTags, include
                     ; // Don't do tag validation if allowed tags are not defined or the post has no tags
 
                 return R.pipe(
-                    R.merge(R.__, mdAttrs),
-                    R.merge({ siteTitle: appendTitle(siteTitle, mdAttrs.title) }),
+                    R.merge(R.__, attrs),
+                    R.merge({ siteTitle: appendTitle(siteTitle, attrs.title) }),
                     R.evolve({
                         tags: R.pipe(R.append(fileNameAttrs.section), R.reject(R.isEmpty))
                     }),
@@ -225,6 +261,7 @@ function generatePosts(posts, elmJs, outputPath, siteTitle, allowedTags, include
 
 // String -> PageConfig | PostConfig -> HtmlString
 function generateHtml(elmJs, pageOrPost) {
+    log.info("    Generating " + pageOrPost.outputPath)
     const script = new Script(`
     ${elmJs}; let app = Elm.${pageOrPost.layout}.init({flags: ${JSON.stringify(pageOrPost)}})
     `)
@@ -233,7 +270,10 @@ function generateHtml(elmJs, pageOrPost) {
     })
 
     dom.runVMScript(script)
-    return "<!doctype html>" + R.replace(/citatsmle-script/g, "script", dom.window.document.body.innerHTML)
+    if (dom.window.document.title == "error") 
+        throw new Error(`Error in ${pageOrPost.inputPath}:\n${dom.window.document.body.firstChild.attributes[0].value}`)
+    else 
+        return "<!doctype html>" + R.replace(/citatsmle-script/g, "script", dom.window.document.body.innerHTML)
 }
 
 // String -> HtmlPage | PostHtmlPage -> ()/Effects
@@ -343,10 +383,12 @@ function generateEverything(pages, posts, options) {
     const elmJs = buildLayouts(config.elm)
 
     log("  Generating pages")
-    const newPages = generatePages(pages, elmJs, config.outputDir, config.siteTitle, Glob.sync("**/*.md", { cwd: "_pages" }))
+    const newPages = generatePages(pages, elmJs, config.outputDir, config.siteTitle, 
+        Glob.sync("**/*.*(md|emu)", { cwd: "_pages" }))
 
     log("  Generating posts")
-    const newPosts = generatePosts(posts, elmJs, config.outputDir, config.siteTitle, config.allowedTags, options.includeDrafts, Glob.sync("_posts/**/*.md"))
+    const newPosts = generatePosts(posts, elmJs, config.outputDir, config.siteTitle, 
+        config.allowedTags, options.includeDrafts, Glob.sync("_posts/**/*.*(md|emu)"))
 
     log("  Generating tag pages")
     const tagPages = generateTagPages(elmJs, config.outputDir, config.siteTitle, newPosts)
@@ -446,22 +488,22 @@ function buildSiteAndWatch(options) {
         }
         catch (err) {
             if (!R.isEmpty(err.message)) {
-                log.error(err.message) 
+                log.error("\n" + err.message) 
             }
             else
-                ; // No message means it's an elm make error, so it's already printed
+                ; // No message means it's an `elm make` error, so it's already printed
             log("Error! Watching for more changes...")    
         }
         
     }))
 }
 
-// () -> ()/Effects
-function generateScaffold() {
+// Bool -> ()/Effects
+function generateScaffold(options) {
     const files = Fs.readdirSync(".")
     if (R.isEmpty(files) || (R.length(files) == 1 && files[0] == ".git")) {
         log("Generating scaffold")
-        Fs.copySync(Path.join(__dirname, "..", "scaffold"), process.cwd())    
+        Fs.copySync(Path.join(__dirname, "..", "scaffold", options.forElmMarkup ? "emu" : "md"), process.cwd())
     }
     else {
         throw new Error("The directory is not empty. Please run the command in an empty directory.")
@@ -491,7 +533,8 @@ flags
 flags
     .command("init", )
     .description("Generate a scaffold for a new site in the current directory")
-    .action((cmd) => generateScaffold())
+    .option("--elm-markup", "provide an elm-markup scaffold instead of the default Markdown")
+    .action((cmd) => generateScaffold({ forElmMarkup: cmd.elmMarkup }))
 
 flags
     .command("watch")  
@@ -513,7 +556,7 @@ try {
 }    
 catch (err) {
     if (!R.isEmpty(err.message))
-        log.error(err.message)
+        log.error("\n" + err.message)
     else 
         ; // No message means it's an elm make error, so it's already printed
     process.exitCode = 1
