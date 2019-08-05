@@ -1,3 +1,7 @@
+0.6.0 (2019-08-05)
+
+* Add support for elm-markup and --elm-markup flag for `elmstatic init`
+
 0.5.1 (2019-07-12)
 
 * Stop watch mode terminating on errors
