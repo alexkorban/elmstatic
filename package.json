@@ -9,8 +9,8 @@
   },
   "scripts": {
     "start": "$npm_package_bin_elmstatic",
-    "test-markdown": "rm -rf test/test-run && cd test && mkdir test-run && cd test-run && $INIT_CWD/bin/elmstatic.js init && $INIT_CWD/bin/elmstatic.js build", 
-    "test-elm-markup": "rm -rf test/test-run && cd test && mkdir test-run && cd test-run && $INIT_CWD/bin/elmstatic.js init --elm-markup && $INIT_CWD/bin/elmstatic.js build", 
+    "test-markdown": "rm -rf $GITHUB_WORKSPACE/test-run && mkdir $GITHUB_WORKSPACE/test-run && cd $GITHUB_WORKSPACE/test-run && $INIT_CWD/bin/elmstatic.js init && $INIT_CWD/bin/elmstatic.js build", 
+    "test-elm-markup": "rm -rf $GITHUB_WORKSPACE/test-run && mkdir $GITHUB_WORKSPACE/test-run && cd $GITHUB_WORKSPACE/test-run && $INIT_CWD/bin/elmstatic.js init --elm-markup && $INIT_CWD/bin/elmstatic.js build", 
     "test": "npm run test-markdown && npm run test-elm-markup"
   },
   "author": "Alex Korban (https://korban.net/elm)",
