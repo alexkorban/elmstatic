@@ -8,7 +8,10 @@
     "elmstatic": "./bin/elmstatic.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "$npm_package_bin_elmstatic",
+    "test-markdown": "rm -rf test/test-run && mkdir test/test-run && cd test/test-run && $INIT_CWD/bin/elmstatic.js init && $INIT_CWD/bin/elmstatic.js build", 
+    "test-elm-markup": "rm -rf test/test-run && mkdir test/test-run && cd test/test-run && $INIT_CWD/bin/elmstatic.js init --elm-markup && $INIT_CWD/bin/elmstatic.js build", 
+    "test": "npm run test-markdown && npm run test-elm-markup"
   },
   "author": "Alex Korban (https://korban.net/elm)",
   "license": "GPL-3.0",
