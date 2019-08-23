@@ -1,0 +1,20 @@
+on: push
+name: Build & Test
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Build
+      uses: actions/npm@master
+      with:
+        args: install
+    - name: Install Elm
+      uses: actions/npm@master
+      with:
+        args: install elm
+    - name: Test
+      uses: actions/npm@master
+      with:
+        args: test
