@@ -428,7 +428,7 @@ function generateEverything(pages, posts, options) {
     R.forEach(writeHtmlPage, tagPages)
 
     log("  Generating feeds")
-    generateFeeds(config.feed, config.outputDir, newPosts)
+    generateFeeds(config.feed, config.outputDir, R.reject(R.propEq("isIndex", true), newPosts))
     log("  Duplicating pages")
     duplicatePages(config.copy, config.outputDir)
     log("  Copying resources")
