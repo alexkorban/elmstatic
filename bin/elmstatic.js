@@ -337,20 +337,37 @@ function generateFeed(outputPath, config, posts) {
         })
     }, posts)
 
-    Fs.writeFileSync(outputPath, feed.rss2())
+    let contents;
+
+    switch (config.type) {
+        case "atom":
+            outputPath = Path.join(outputPath, "atom.xml")
+            contents = feed.atom1()
+            break
+
+        case "json":
+            outputPath = Path.join(outputPath, "feed.json")
+            contents = feed.json1()
+            break
+
+        case "rss":
+        default:
+            outputPath = Path.join(outputPath, "rss.xml")
+            contents = feed.rss2()
+    }
+
+    log.info(`    Writing ${outputPath}`)
+    Fs.writeFileSync(outputPath, contents)
 }
 
 // String -> [PostHtmlPage] -> ()/Effects
 function generateFeeds(feedConfig, outputPath, posts) {
     const sections = extractSections(posts)
-    log.info(`    Writing ${Path.join(outputPath, "rss.xml")}`)
-    generateFeed(Path.join(outputPath, "rss.xml"),
-        R.merge(feedConfig, { isSectionFeed: false }), posts)
+    generateFeed(outputPath, R.merge(feedConfig, { isSectionFeed: false }), posts)
 
     R.forEach((section) => {
-        log.info(`    Writing ${Path.join(outputPath, section, "rss.xml")}`)
         generateFeed(
-            Path.join(outputPath, section, "rss.xml"),
+            Path.join(outputPath, section),
             R.evolve({
                 title: R.concat(R.__, `/${section}`),
                 id: R.concat(R.__, `/${section}`),
@@ -411,7 +428,7 @@ function generateEverything(pages, posts, options) {
     R.forEach(writeHtmlPage, tagPages)
 
     log("  Generating feeds")
-    generateFeeds(config.feed, config.outputDir, newPosts)
+    generateFeeds(config.feed, config.outputDir, R.reject(R.propEq("isIndex", true), newPosts))
     log("  Duplicating pages")
     duplicatePages(config.copy, config.outputDir)
     log("  Copying resources")
