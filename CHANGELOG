@@ -1,3 +1,8 @@
+0.6.1 (2019-09-03)
+
+* Add support for Atom and JSON feeds in addition to RSS (thanks to Christian Wesselhoeft)
+* Fix draft post date check
+
 0.6.0 (2019-08-05)
 
 * Add support for elm-markup and --elm-markup flag for `elmstatic init`
@@ -42,7 +47,7 @@ v0.3.4 and Elm 0.18.
 
 * Add support for sections (Pages/Section/About.elm rendered to /section/about)
 * Add support for index pages (Pages/Index.elm rendered to /, Pages/Section/Index.elm rendered to /section)
-* Allow specifying a posprocessing page copy step in config.json (eg to make /projects available as /work as well)
+* Allow specifying a postprocessing page copy step in config.json (eg to make /projects available as /work as well)
 
 0.2.4 (2018-05-03)
 

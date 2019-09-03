@@ -201,7 +201,7 @@ function parsePostFileName(outputPath, postFileName) {
 // [PostConfig] -> String -> String -> String -> [String] -> Bool -> [String] -> [PostHtmlPage]/Effects
 function generatePosts(posts, elmJs, outputPath, siteTitle, allowedTags, includeDrafts, postFileNames) {
     const draftFilter = includeDrafts ? R.identity :
-        (postConfig) => postConfig.isIndex || new Date(postConfig.date) <= new Date()
+        (postConfig) => postConfig.isIndex || new Date(postConfig.date) <= new Date(Date.now() - new Date().getTimezoneOffset() * 60 * 1000)
 
     const postConfigs = R.pipe(
         R.map((postFileName) => {
@@ -337,27 +337,12 @@ function generateFeed(outputPath, config, posts) {
         })
     }, posts)
 
-    let contents;
+    const feedType = config.type || "rss"
+    const fileName = { atom: "atom.xml", json: "feed.json", rss: "rss.xml" }
+    const feedFunc = { atom: feed.atom1, json: feed.json1, rss: feed.rss2 }
 
-    switch (config.type) {
-        case "atom":
-            outputPath = Path.join(outputPath, "atom.xml")
-            contents = feed.atom1()
-            break
-
-        case "json":
-            outputPath = Path.join(outputPath, "feed.json")
-            contents = feed.json1()
-            break
-
-        case "rss":
-        default:
-            outputPath = Path.join(outputPath, "rss.xml")
-            contents = feed.rss2()
-    }
-
-    log.info(`    Writing ${outputPath}`)
-    Fs.writeFileSync(outputPath, contents)
+    log.info(`    Writing ${Path.join(outputPath, fileName[feedType])}`)
+    Fs.writeFileSync(Path.join(outputPath, fileName[feedType]), feedFunc[feedType]())
 }
 
 // String -> [PostHtmlPage] -> ()/Effects
