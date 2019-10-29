@@ -276,12 +276,14 @@ function generateHtml(elmJs, pageOrPost) {
         return "<!doctype html>" + R.replace(/citatsmle-script/g, "script", dom.window.document.body.innerHTML)
 }
 
-// String -> HtmlPage | PostHtmlPage -> ()/Effects
+// String -> HtmlPage | PostHtmlPage -> Promise
 function writeHtmlPage(page) {
     const outputPath = R.endsWith("index", page.outputPath) ?
         page.outputPath + ".html" : Path.join(page.outputPath, "index.html")
-    Fs.mkdirsSync(Path.dirname(outputPath))
-    Fs.writeFileSync(outputPath, page.html)
+    return Fs.mkdirs(Path.dirname(outputPath))
+        .then(() => {
+            return Fs.writeFile(outputPath, page.html)
+        })
 }
 
 // [PostHtmlPage] -> [String]
@@ -371,7 +373,7 @@ function duplicatePages(config, outputPath) {
 
 // String -> ()/Effects
 function copyResources(outputPath) {
-    if (Fs.pathExistsSync("_resources")) 
+    if (Fs.pathExistsSync("_resources"))
         Fs.copySync("_resources", outputPath)
     else
         ; // Do nothing - resources directory not present
@@ -399,8 +401,13 @@ function generateEverything(pages, posts, options) {
     const dotGitContent = Fs.pathExistsSync(dotGitPath) ?
         Fs.readFileSync(Path.join(config.outputDir, ".git")).toString() : null
 
-    log(`  Cleaning out the output path (${config.outputDir})`)
-    Fs.emptyDirSync(config.outputDir)
+    if (options.keepOutputAlive) {
+        ; // do nothing
+    } else {
+        log(`  Cleaning out the output path (${config.outputDir})`)
+        Fs.emptyDirSync(config.outputDir)
+    }
+
 
     if (R.is(String, dotGitContent))
         Fs.writeFileSync(dotGitPath, dotGitContent)
@@ -408,16 +415,34 @@ function generateEverything(pages, posts, options) {
         ; // Do nothing, no .git file existed
 
     log("  Writing HTML")
-    R.forEach(writeHtmlPage, newPages)
-    R.forEach(writeHtmlPage, newPosts)
-    R.forEach(writeHtmlPage, tagPages)
+    
+    Promise.all(
+        [].concat(R.map(writeHtmlPage, newPages), R.map(writeHtmlPage, newPosts), R.map(writeHtmlPage, tagPages))
+    )
+    .then(promiseFileWritings => {
+        log("  Duplicating pages")
+        duplicatePages(config.copy, config.outputDir)
+        log("  Generating feeds")
+        generateFeeds(config.feed, config.outputDir, R.reject(R.propEq("isIndex", true), newPosts))
 
-    log("  Generating feeds")
-    generateFeeds(config.feed, config.outputDir, R.reject(R.propEq("isIndex", true), newPosts))
-    log("  Duplicating pages")
-    duplicatePages(config.copy, config.outputDir)
-    log("  Copying resources")
-    copyResources(config.outputDir)
+        if (config.postProcess.length > 0) {
+            log("  Doing your postprocessing")
+            config.postProcess.forEach(command => {
+                log(`      ${command}`)
+                spawn.sync(command, {shell: true})
+            })
+        }
+        
+        log("  Copying resources")
+        copyResources(config.outputDir)
+        log("  Done.")
+
+        return promiseFileWritings
+    })
+    .catch((e) => {
+        throw e
+        process.exit(1)
+    })
 
     return { pages: newPages, posts: newPosts }
 }
@@ -483,7 +508,7 @@ function buildSiteAndWatch(options) {
             R.forEach((e) => { log.info(`${e.path} ${humaniseFsEvent(e.event)}`) }, events)
 
             const layoutsChanged = R.any(R.pipe(R.prop("path"), R.startsWith("_layouts")), events)
-            const result = generateEverything(layoutsChanged ? [] : pages, layoutsChanged ? [] : posts, options)
+            const result = generateEverything(layoutsChanged ? [] : pages, layoutsChanged ? [] : posts, R.merge(options, {keepOutputAlive: true}))
             pages = result.pages
             posts = result.posts
             log("Ready! Watching for more changes...")    
