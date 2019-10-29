@@ -7,14 +7,14 @@ jobs:
     steps:
     - uses: actions/checkout@master
     - name: Build
-      uses: actions/npm@master
+      uses: actions/setup-node@master
       with:
-        args: install
+        args: npm install
     - name: Install Elm
-      uses: actions/npm@master
+      uses: actions/setup-node@master
       with:
-        args: install elm
+        args: npm install elm@0.19.0
     - name: Test
-      uses: actions/npm@master
+      uses: actions/setup-node@master
       with:
-        args: test
+        args: npm test
