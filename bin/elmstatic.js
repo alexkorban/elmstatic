@@ -425,7 +425,7 @@ function generateEverything(pages, posts, options) {
         log("  Generating feeds")
         generateFeeds(config.feed, config.outputDir, R.reject(R.propEq("isIndex", true), newPosts))
 
-        if (config.postProcess.length > 0) {
+        if (config.postProcess && config.postProcess.length && config.postProcess.length > 0) {
             log("  Doing your postprocessing")
             config.postProcess.forEach(command => {
                 log(`      ${command}`)
