@@ -25,11 +25,11 @@ function readConfig() {
     return R.merge(config, { allowedTags })
 }
 
-// String -> String/Effects
-function buildLayouts(elmPath) {
-    const layouts = R.reject(R.endsWith("Elmstatic.elm"), Glob.sync("_layouts/**/*.elm"))
+// String -> [String] -> String/Effects
+function buildLayouts(elmPath, layouts) {
+    const layoutFileNames = R.map((layout) => Path.join("_layouts", layout + ".elm"), layouts)
     const command = R.isNil(elmPath) ? "elm" : elmPath
-    const args = ["make", layouts, "--optimize", "--output", "elm.js"]
+    const args = ["make", layoutFileNames, "--optimize", "--output", "elm.js"]
 
     log.info(`  $ ${command} ${R.flatten(args).join(" ")}`)
     const res = spawn.sync(command, R.flatten(args), { stdio: 'inherit' })
@@ -171,12 +171,15 @@ const generatePageConfig = R.curry((pages, outputPath, siteTitle, pageFileName) 
         return existingPage
 })
 
-// [PageConfig] -> String -> String -> String -> [String] -> [HtmlPage]/Effects
-function generatePages(pages, elmJs, outputPath, siteTitle, pageFileNames) {
-    return R.pipe(
-        R.map(generatePageConfig(pages, outputPath, siteTitle)),
-        R.map((page) => R.isNil(page.html) ? R.merge(page, { html: generateHtml(elmJs, page) }) : page)
-    )(pageFileNames)
+// [PageConfig] -> String -> String -> [String] -> [HtmlPage]/Effects
+function generatePageConfigs(pages, outputPath, siteTitle, pageFileNames) {
+    return R.map(generatePageConfig(pages, outputPath, siteTitle), pageFileNames)
+}
+    
+
+// String -> [PostConfig] -> [HtmlPage]/Effects
+function generatePages(elmJs, pages) {
+    return R.map((page) => R.isNil(page.html) ? R.merge(page, { html: generateHtml(elmJs, page) }) : page, pages)
 }
 
 // String -> String -> {[<key>: Any]}
@@ -198,8 +201,8 @@ function parsePostFileName(outputPath, postFileName) {
     }
 }
 
-// [PostConfig] -> String -> String -> String -> [String] -> Bool -> [String] -> [PostHtmlPage]/Effects
-function generatePosts(posts, elmJs, outputPath, siteTitle, allowedTags, includeDrafts, postFileNames) {
+// [PostConfig] -> String -> String -> [String] -> Bool -> [String] -> [PostHtmlPage]/Effects
+function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeDrafts, postFileNames) {
     const draftFilter = includeDrafts ? R.identity :
         (postConfig) => postConfig.isIndex || new Date(postConfig.date) <= new Date(Date.now() - new Date().getTimezoneOffset() * 60 * 1000)
 
@@ -243,20 +246,22 @@ function generatePosts(posts, elmJs, outputPath, siteTitle, allowedTags, include
         , R.filter(draftFilter)
     )(postFileNames)
 
-    return R.pipe(
-        R.map((postConfig) => {
-            if (postConfig.isIndex) {
-                const filter = R.isEmpty(postConfig.section) ?
-                    R.identity : R.propEq("section", postConfig.section)
-                return R.merge(postConfig,
-                    { posts: R.filter(R.both(filter, R.propEq("isIndex", false)), postConfigs) })
-            }
-            else {
-                return postConfig
-            }
-        }),
-        R.map((post) => R.isNil(post.html) ? R.merge(post, { html: generateHtml(elmJs, post) }) : post)
-    )(postConfigs)
+    return R.map((postConfig) => {
+        if (postConfig.isIndex) {
+            const filter = R.isEmpty(postConfig.section) ?
+                R.identity : R.propEq("section", postConfig.section)
+            return R.merge(postConfig,
+                { posts: R.filter(R.both(filter, R.propEq("isIndex", false)), postConfigs) })
+        }
+        else {
+            return postConfig
+        }
+    }, postConfigs)
+}
+
+// String -> [PostConfig] -> [PostHtmlPage]/Effects
+function generatePosts(elmJs, posts) {
+    return R.map((post) => R.isNil(post.html) ? R.merge(post, { html: generateHtml(elmJs, post) }) : post, posts)
 }
 
 // String -> PageConfig | PostConfig -> HtmlString
@@ -379,18 +384,44 @@ function copyResources(outputPath) {
 
 // [PageConfig] -> [PostConfig] -> {includeDrafts: Bool} -> ()/Effects
 function generateEverything(pages, posts, options) {
+    // Dependencies between different inputs and outputs look something like this, 
+    // (ie to build elm.js we need to read all page/post content to get both 
+    // page and post configs), and this could be used to optimise which steps
+    // are carried out on a given input change:
+    // const buildDependencies = {
+    //     config: [],
+    //     resources: ["config"],
+    //     pageConfigs: ["config"],
+    //     postConfigs: ["config"],
+    //     elmJs: ["pageConfigs", "postConfigs"],
+    //     tagPageConfigs: ["postConfigs"],
+    //     feeds: ["postConfigs"],
+    //     pages: ["elmJs"],
+    //     posts: ["elmJs"],
+    //     tagPages: ["elmJs", "tagPageConfigs"],
+    //     aliases: ["pages", "posts", "tagPages"]
+    // }
+
     const config = readConfig()
 
+    const newPages = generatePageConfigs(pages, config.outputDir, config.siteTitle, Glob.sync("**/*.*(md|emu)", { cwd: "_pages" }))
+    const newPosts = generatePostConfigs(posts, config.outputDir, config.siteTitle, 
+        config.allowedTags, options.includeDrafts, Glob.sync("_posts/**/*.*(md|emu)"))
+
+    const layouts = R.pipe(
+        R.map(R.prop("layout")),
+        R.concat(R.isEmpty(newPosts) ? [] : ["Tag"]),
+        R.uniq
+    )(R.concat(newPages, newPosts)) 
+
     log("  Compiling layouts")
-    const elmJs = buildLayouts(config.elm)
+    const elmJs = buildLayouts(config.elm, layouts)
 
     log("  Generating pages")
-    const newPages = generatePages(pages, elmJs, config.outputDir, config.siteTitle, 
-        Glob.sync("**/*.*(md|emu)", { cwd: "_pages" }))
+    const newPagesWithHtml = generatePages(elmJs, newPages)
 
     log("  Generating posts")
-    const newPosts = generatePosts(posts, elmJs, config.outputDir, config.siteTitle, 
-        config.allowedTags, options.includeDrafts, Glob.sync("_posts/**/*.*(md|emu)"))
+    const newPostsWithHtml = generatePosts(elmJs, newPosts)
 
     log("  Generating tag pages")
     const tagPages = generateTagPages(elmJs, config.outputDir, config.siteTitle, newPosts)
@@ -408,8 +439,8 @@ function generateEverything(pages, posts, options) {
         ; // Do nothing, no .git file existed
 
     log("  Writing HTML")
-    R.forEach(writeHtmlPage, newPages)
-    R.forEach(writeHtmlPage, newPosts)
+    R.forEach(writeHtmlPage, newPagesWithHtml)
+    R.forEach(writeHtmlPage, newPostsWithHtml)
     R.forEach(writeHtmlPage, tagPages)
 
     log("  Generating feeds")
@@ -419,7 +450,7 @@ function generateEverything(pages, posts, options) {
     log("  Copying resources")
     copyResources(config.outputDir)
 
-    return { pages: newPages, posts: newPosts }
+    return { pages: newPagesWithHtml, posts: newPostsWithHtml }
 }
 
 // {includeDrafts: Bool} -> {pages: [HtmlPage], posts: [HtmlPage]}/Effects

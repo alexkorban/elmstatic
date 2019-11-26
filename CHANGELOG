@@ -1,3 +1,11 @@
+0.6.3 (2019-11-26)
+
+* Add support for Elm 0.19.1
+
+0.6.2 (2019-09-17)
+
+* Replace package-lock.json with npm-shrinkwrap.json
+
 0.6.1 (2019-09-03)
 
 * Add support for Atom and JSON feeds in addition to RSS (thanks to Christian Wesselhoeft)
