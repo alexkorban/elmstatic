@@ -1,9 +1,14 @@
 on: push
-name: Build & Test
+name: Smoke test
 jobs:
-  build:
-    name: Build
-    runs-on: ubuntu-latest
+  test:
+    strategy:
+      matrix:
+        node-version: [10, 12]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        elm-version: [latest-0.19.0, latest-0.19.1]
+    name: Test with Elm ${{matrix.elm-version}} on Node ${{ matrix.node-version }} and ${{ matrix.os }}
+    runs-on: ${{matrix.os}}
     steps:
     - uses: actions/checkout@master
     - name: Build
@@ -13,7 +18,8 @@ jobs:
     - name: Install Elm
       uses: actions/setup-node@master
       with:
-        args: npm install elm@0.19.0
+        version: ${{ matrix.node-version }}
+        args: npm install elm@${{ matrix.elm-version }}
     - name: Test
       uses: actions/setup-node@master
       with:
