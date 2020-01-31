@@ -16,5 +16,6 @@ There are a few sites that I'm aware of:
 - [jpc.dev](https://jpc.dev/) (Joe Corkerton's personal site)
 - [groundlevelmagic.tk](https://groundlevelmagic.tk) (Leonardo Taglialegne's personal site)
 - [mweiss.me](https://mweiss.me) (Michael Weiss' personal site)
+- [segunda.tech](https://segunda.tech/) (Marcio Frayze David's personal site)
 
 Do you have a public Elmstatic site? Please [contact me](https://korban.net/elm/contact) and let me know so I can add it here!
