@@ -33,8 +33,12 @@ function buildLayouts(elmPath, layouts) {
 
     log.info(`  $ ${command} ${R.flatten(args).join(" ")}`)
     const res = spawn.sync(command, R.flatten(args), { stdio: 'inherit' })
-    if (res.status != 0)
+    if (res.status == 1) {  // This indicates a compiler error
         throw new Error("")
+    }
+    else if (!R.isNil(res.error) && res.error.errno == "ENOENT") {
+        throw new Error(`Couldn't find the Elm executable (${res.error.path})`)
+    }
     else
         return Fs.readFileSync("elm.js").toString()
 }

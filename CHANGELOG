@@ -1,3 +1,7 @@
+0.6.4 (2020-02-15)
+
+* Output an error when the Elm executable isn't found 
+
 0.6.3 (2019-11-26)
 
 * Add support for Elm 0.19.1
