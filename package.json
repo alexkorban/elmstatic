@@ -1,6 +1,6 @@
 {
   "name": "elmstatic",
-  "version": "0.4.0",
+  "version": "0.6.4",
   "description": "Elm-to-HTML static site generator",
   "homepage": "https://korban.net/elm/elmstatic",
   "repository": "github:alexkorban/elmstatic",
@@ -8,15 +8,20 @@
     "elmstatic": "./bin/elmstatic.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "$npm_package_bin_elmstatic",
+    "test-markdown": "rm -rf $GITHUB_WORKSPACE/test-run && mkdir $GITHUB_WORKSPACE/test-run && cd $GITHUB_WORKSPACE/test-run && $INIT_CWD/bin/elmstatic.js init && $INIT_CWD/bin/elmstatic.js build",
+    "test-elm-markup": "rm -rf $GITHUB_WORKSPACE/test-run && mkdir $GITHUB_WORKSPACE/test-run && cd $GITHUB_WORKSPACE/test-run && $INIT_CWD/bin/elmstatic.js init --elm-markup && $INIT_CWD/bin/elmstatic.js build",
+    "test": "npm run test-markdown && npm run test-elm-markup"
   },
   "author": "Alex Korban (https://korban.net/elm)",
   "license": "GPL-3.0",
   "dependencies": {
-    "bluebird": "^3.5.1",
+    "chokidar": "^3.3.0",
+    "commander": "^2.20.3",
+    "cross-spawn": "^6.0.5",
     "feed": "^2.0.0",
     "fs-extra": "^7.0.0",
-    "glob": "^7.1.2",
+    "glob": "^7.1.6",
     "jsdom": "^13.2.0",
     "ramda": "^0.26.0",
     "remove-markdown": "^0.3.0"

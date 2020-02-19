@@ -1,55 +1,68 @@
 #!/usr/bin/env node
+const Chokidar = require("chokidar")
+const { Feed } = require("feed")
 const Fs = require("fs-extra")
-const {Feed} = require("feed")
 const Glob = require("glob")
 const JsDom = require("jsdom").JSDOM
 const Path = require("path")
-const Promise = require("bluebird")
 const R = require("ramda")
-const {Script} = require("vm")
+const { Script } = require("vm")
+const flags = require("commander")
 const removeMarkdown = require("remove-markdown")
-const {spawnSync} = require("child_process")
+const { spawn } = require("cross-spawn")
 
-// String -> ()/Effects
-function buildLayouts(elmPath) {
-    const layouts = R.reject(R.endsWith("Elmstatic.elm"), Glob.sync("_layouts/**/*.elm"))
-    let command = R.isNil(elmPath) ? "elm" : elmPath
-    let args = ["make", layouts, "--optimize", "--output", "elm.js"]
+// () -> Config/Effects
+function readConfig() {
+    try {
+        Fs.accessSync("config.json", Fs.constants.R_OK)
+    }
+    catch (err) {
+        throw new Error("Couldn't find config.json. Is this a new project? Run `elmstatic init` to generate a scaffold.")
+    }
 
-    console.log(`  $ ${command} ${R.flatten(args).join(" ")}`)
-    const res = spawnSync(command, R.flatten(args), { stdio: 'inherit' })
-    if (res.status != 0)
-        throw new Error(res.error)
+    const config = JSON.parse(Fs.readFileSync("config.json").toString())
+    const allowedTags = R.map(R.toLower, R.defaultTo([], config.tags))
+    return R.merge(config, { allowedTags })
+}
+
+// String -> [String] -> String/Effects
+function buildLayouts(elmPath, layouts) {
+    const layoutFileNames = R.map((layout) => Path.join("_layouts", layout + ".elm"), layouts)
+    const command = R.isNil(elmPath) ? "elm" : elmPath
+    const args = ["make", layoutFileNames, "--optimize", "--output", "elm.js"]
+
+    log.info(`  $ ${command} ${R.flatten(args).join(" ")}`)
+    const res = spawn.sync(command, R.flatten(args), { stdio: 'inherit' })
+    if (res.status == 1) {  // This indicates a compiler error
+        throw new Error("")
+    }
+    else if (!R.isNil(res.error) && res.error.errno == "ENOENT") {
+        throw new Error(`Couldn't find the Elm executable (${res.error.path})`)
+    }
     else
         return Fs.readFileSync("elm.js").toString()
 }
 
 // String -> String
-function dropExtension (fileName) {
+function dropExtension(fileName) {
     return R.slice(0, R.lastIndexOf(".", fileName), fileName)
 }
 
 // String -> {contentStartIndex: Int, preamble: String}
 function extractPreamble(contents) {
     const preambleMarker = "---\n"
-    if (!R.startsWith(preambleMarker, contents))
-        return {
-            contentStartIndex: 0,
-            preamble: ""
-        }
-    
-    const endOfPreamble = contents.indexOf(preambleMarker, R.length(preambleMarker))
-    
-    if (endOfPreamble == -1)
-        return {
-            contentStartIndex: 0,
-            preamble: ""
-        }
+    if (!R.startsWith(preambleMarker, contents)) {
+        return { contentStartIndex: 0, preamble: "" }
+    }
     else {
-        const preamble = R.slice(R.length(preambleMarker), endOfPreamble, contents)
-        return {
-            contentStartIndex: endOfPreamble + R.length(preambleMarker),
-            preamble: preamble
+        const endOfPreamble = contents.indexOf(preambleMarker, R.length(preambleMarker))
+
+        if (endOfPreamble == -1) {
+            return { contentStartIndex: 0, preamble: "" }
+        }
+        else {
+            const preamble = R.slice(R.length(preambleMarker), endOfPreamble, contents)
+            return { contentStartIndex: endOfPreamble + R.length(preambleMarker), preamble: preamble }
         }
     }
 }
@@ -57,9 +70,9 @@ function extractPreamble(contents) {
 // String -> [String, String]
 function parsePreambleLine(line) {
     return R.pipe(
-          R.splitAt(R.indexOf(":", line))
-        , R.evolve({1: R.tail})
-        , R.map(R.trim)
+        R.splitAt(R.indexOf(":", line)),
+        R.evolve({ 1: R.tail }),
+        R.map(R.trim)
     )(line)
 }
 
@@ -70,28 +83,56 @@ function unquote(s) {
     return R.slice(startIndex, endIndex, s)
 }
 
+// String -> String
 const appendTitle = R.curry((title, s) => R.isNil(title) || R.isEmpty(title) ? s : s + " | " + title)
 
-// String -> Object<String>
+// String -> {[<key>: String]}
 const parsePreamble = R.pipe(
-    R.split("\n")
-  , R.reject(R.isEmpty)
-  , R.map(parsePreambleLine)
-  , R.fromPairs
-  , R.evolve({tags: R.pipe(R.split(/\s+/), R.map(R.trim), R.reject(R.isEmpty)), title: unquote})
+    R.split("\n"),
+    R.reject(R.isEmpty),
+    R.map(parsePreambleLine),
+    R.fromPairs
 )
 
-// String -> Object<String>
+// String -> {[<key>: String]}
 function parseMarkdown(contents) {
-    const {contentStartIndex, preamble} = extractPreamble(contents)
+    const { contentStartIndex, preamble } = extractPreamble(contents)
     const contentsWithoutPreamble = R.drop(contentStartIndex, contents)
     const excerpt = R.pipe(removeMarkdown, R.slice(0, 500), R.concat(R.__, "..."))(contentsWithoutPreamble)
-    return R.merge(parsePreamble(preamble), {excerpt, markdown: contentsWithoutPreamble})
+    return R.merge(parsePreamble(preamble), { excerpt, markdown: contentsWithoutPreamble })
 }
 
-// String -> String -> Object<String>
+// String -> {[<key>: String]}
+function parseElmMarkupPreamble(contents) {
+    const layoutMatches = R.match(/\|>\s*Metadata\s*/, contents)
+    const endOfPreamble = R.match(/\n\s*\n/, contents)
+    if (R.isEmpty(layoutMatches) || R.isEmpty(endOfPreamble)) {
+        return {}
+    }
+    else {
+        return R.pipe(
+            R.slice(R.length(layoutMatches[0]), endOfPreamble.index),
+            R.split(/\s*\n\s+/),
+            R.map(R.pipe(R.split(/\s*=\s*/), R.map(R.trim))),
+            R.fromPairs,
+            R.mergeAll
+        )(contents)
+    }        
+}
+
+// String -> {[<key>: String]}
+function parseElmMarkup(contents) {
+    const preamble = parseElmMarkupPreamble(contents)
+    return R.merge(preamble, { content: contents })
+}
+
+// String -> String -> {outputPath: String}
 function parsePageFileName(outputPath, pageFileName) {
-    return {outputPath: Path.join(outputPath, dropExtension(pageFileName))}
+    return { 
+        inputPath: Path.join("_pages", pageFileName), 
+        outputPath: Path.join(outputPath, dropExtension(pageFileName)),
+        format: Path.extname(pageFileName) == ".md" ? "md" : "emu"
+    }
 }
 
 // String -> String/Effects
@@ -103,91 +144,118 @@ function readFile(unresolvedFileName) {
     return Fs.readFileSync(resolvedFileName).toString()
 }
 
-// String -> String -> [String] -> [HtmlPageConfig]/Effects
-function generatePageConfigs(outputPath, siteTitle, pageFileNames) {
-    return R.map((pageFileName) => {
-        const contents = readFile(Path.join("_pages", pageFileName))
-        let mdAttrs = parseMarkdown(contents)
+// [PageConfig] ->  String -> String -> String -> HtmlPage/Effects
+const generatePageConfig = R.curry((pages, outputPath, siteTitle, pageFileName) => {
+    const mtime = Fs.lstatSync(Path.join("_pages", pageFileName)).mtime
+    const ext = Path.extname(pageFileName)
+    const existingPage = R.find(R.propEq("pageFileName", pageFileName), pages)
 
-        if (!R.isNil(mdAttrs.content)) {
-            const transcludedContents = readFile(Path.join("_pages", mdAttrs.content + ".md"))
-            const transcludedMdAttrs = parseMarkdown(transcludedContents)
-            mdAttrs = R.merge(mdAttrs, R.pick(["excerpt", "markdown"], transcludedMdAttrs))
+    if (R.isNil(existingPage) || mtime > existingPage.mtime) {
+        const contents = readFile(Path.join("_pages", pageFileName))
+        let attrs = R.pipe(
+            ext == ".md" ? parseMarkdown : parseElmMarkup,
+            R.evolve({ title: unquote })
+        )(contents)
+
+        if (!R.isNil(attrs.contentSource)) {
+            const transcludedContents = readFile(Path.join("_pages", attrs.contentSource + ext))
+            const transcludedAttrs = ext == ".md" ? parseMarkdown(transcludedContents) : parseElmMarkup(transcludedContents)
+            attrs = R.merge(attrs, R.pick(["content", "excerpt", "markdown"], transcludedAttrs))
         }
-        else 
+        else
             ; // Do nothing - the file doesn't link to another file's content
 
         return R.pipe(
-              R.merge(R.__, mdAttrs)             
-            , R.merge({siteTitle: appendTitle(siteTitle, mdAttrs.title)})
-            , R.merge(parsePageFileName(outputPath, pageFileName))
-        )({layout: "Page"})
-    }, pageFileNames)
+            R.merge(R.__, attrs),
+            R.merge({ siteTitle: appendTitle(siteTitle, attrs.title) }),
+            R.merge(parsePageFileName(outputPath, pageFileName))
+        )({ layout: "Page", mtime, pageFileName })
+    }
+    else
+        return existingPage
+})
+
+// [PageConfig] -> String -> String -> [String] -> [HtmlPage]/Effects
+function generatePageConfigs(pages, outputPath, siteTitle, pageFileNames) {
+    return R.map(generatePageConfig(pages, outputPath, siteTitle), pageFileNames)
+}
+    
+
+// String -> [PostConfig] -> [HtmlPage]/Effects
+function generatePages(elmJs, pages) {
+    return R.map((page) => R.isNil(page.html) ? R.merge(page, { html: generateHtml(elmJs, page) }) : page, pages)
 }
 
-// String -> String -> Object<String>
+// String -> String -> {[<key>: Any]}
 function parsePostFileName(outputPath, postFileName) {
     const dirName = Path.dirname(postFileName)
-    const section = R.equals(dirName, "posts") ? "" 
+    const section = R.equals(dirName, "posts") ? ""
         : R.slice(R.lastIndexOf(Path.sep, dirName) + 1, R.length(dirName), dirName)
 
-    if (R.endsWith("index.md", postFileName)) {
-        return {
-            isIndex: true, section, outputPath: Path.join(outputPath, dirName)
-        }
-    } 
+    if (dropExtension(Path.basename(postFileName)) == "index") {
+        return { isIndex: true, section, inputPath: postFileName, outputPath: Path.join(outputPath, dirName) }
+    }
     else {
         const date = R.take(10, Path.basename(postFileName))
         const slug = R.pipe(Path.basename, R.drop(11), dropExtension)(postFileName)
         const link = Path.join(dirName, date + "-" + slug)
+        const format = Path.extname(postFileName) == ".md" ? "md" : "emu"
 
-        return {
-            isIndex: false, date, slug, link, section, outputPath: Path.join(outputPath, link)
-        }
+        return { isIndex: false, date, slug, link, format, section, inputPath: postFileName, outputPath: Path.join(outputPath, link) }
     }
 }
 
-// String -> String -> [String] -> Bool -> [String] -> [PostConfig]/Effects
-function generatePostConfigs(outputPath, siteTitle, allowedTags, includeDrafts, postFileNames) {
-    const draftFilter = includeDrafts ? R.identity : 
-        (postConfig) => postConfig.isIndex || new Date(postConfig.date) <= new Date()
+// [PostConfig] -> String -> String -> [String] -> Bool -> [String] -> [PostHtmlPage]/Effects
+function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeDrafts, postFileNames) {
+    const draftFilter = includeDrafts ? R.identity :
+        (postConfig) => postConfig.isIndex || new Date(postConfig.date) <= new Date(Date.now() - new Date().getTimezoneOffset() * 60 * 1000)
 
     const postConfigs = R.pipe(
-          R.map((postFileName) => {
-            const outputFileName = R.tail(postFileName)  // Remove leading underscore 
-            const contents = Fs.readFileSync(Fs.realpathSync(postFileName)).toString()
-            const mdAttrs = parseMarkdown(contents)
-            const fileNameAttrs = parsePostFileName(outputPath, outputFileName)
-            const isIndex = R.endsWith("index.md", outputFileName)
+        R.map((postFileName) => {
+            const mtime = Fs.lstatSync(Fs.realpathSync(postFileName)).mtime
+            const ext = Path.extname(postFileName)
+            const existingPost = R.find(R.propEq("postFileName", postFileName), posts)
 
-            if (!R.isEmpty(allowedTags) && !R.isNil(mdAttrs.tags)) {
-                const invalidTags = R.difference(R.map(R.toLower, mdAttrs.tags), allowedTags)
-                if (!R.isEmpty(invalidTags))
-                    throw new Error(`Invalid tags [${invalidTags.join(", ")}] found in ${postFileName}`)
-                else 
-                    ; // All post tags are valid
+            if (R.isNil(existingPost) || mtime > existingPost.mtime || existingPost.isIndex) {
+                const outputFileName = R.tail(postFileName)  // Remove leading underscore 
+                const contents = Fs.readFileSync(Fs.realpathSync(postFileName)).toString()
+                const attrs = R.pipe(
+                    ext == ".md" ? parseMarkdown : parseElmMarkup,
+                    R.evolve({ tags: R.pipe(R.split(/\s+/), R.map(R.trim), R.reject(R.isEmpty)), title: unquote })
+                )(contents)
+                const fileNameAttrs = parsePostFileName(outputPath, outputFileName)
+
+                if (!R.isEmpty(allowedTags) && !R.isNil(attrs.tags)) {
+                    const invalidTags = R.difference(R.map(R.toLower, attrs.tags), allowedTags)
+                    if (!R.isEmpty(invalidTags))
+                        throw new Error(`Error in ${postFileName}:\nUndeclared tags: [${invalidTags.join(", ")}]\nYou can declare tags in config.json`)
+                    else
+                        ; // All post tags are valid
+                }
+                else
+                    ; // Don't do tag validation if allowed tags are not defined or the post has no tags
+
+                return R.pipe(
+                    R.merge(R.__, attrs),
+                    R.merge({ siteTitle: appendTitle(siteTitle, attrs.title) }),
+                    R.evolve({
+                        tags: R.pipe(R.append(fileNameAttrs.section), R.reject(R.isEmpty))
+                    }),
+                    R.merge(fileNameAttrs)
+                )({ layout: fileNameAttrs.isIndex ? "Posts" : "Post", mtime, postFileName })
             }
-            else 
-                ; // Don't do tag validation if allowed tags are not defined or the post has no tags
-
-            return R.pipe(
-                R.merge(R.__, mdAttrs)
-                , R.merge({siteTitle: appendTitle(siteTitle, mdAttrs.title)})
-                , R.evolve({
-                    tags: R.pipe(R.append(fileNameAttrs.section), R.reject(R.isEmpty))
-                })
-                , R.merge(fileNameAttrs)
-            )({layout: isIndex ? "Posts" : "Post"})
-          })           
+            else
+                return existingPost
+        })
         , R.filter(draftFilter)
     )(postFileNames)
-    
+
     return R.map((postConfig) => {
         if (postConfig.isIndex) {
-            const filter = R.isEmpty(postConfig.section) ? 
+            const filter = R.isEmpty(postConfig.section) ?
                 R.identity : R.propEq("section", postConfig.section)
-            return R.merge(postConfig, 
-                {posts: R.filter(R.both(filter, R.propEq("isIndex", false)), postConfigs)})
+            return R.merge(postConfig,
+                { posts: R.filter(R.both(filter, R.propEq("isIndex", false)), postConfigs) })
         }
         else {
             return postConfig
@@ -195,118 +263,116 @@ function generatePostConfigs(outputPath, siteTitle, allowedTags, includeDrafts, 
     }, postConfigs)
 }
 
-// String -> PageConfig | PostConfig -> Promise<HtmlString>
-function generateHtml(elmJs, pageOrPost) {        
+// String -> [PostConfig] -> [PostHtmlPage]/Effects
+function generatePosts(elmJs, posts) {
+    return R.map((post) => R.isNil(post.html) ? R.merge(post, { html: generateHtml(elmJs, post) }) : post, posts)
+}
+
+// String -> PageConfig | PostConfig -> HtmlString
+function generateHtml(elmJs, pageOrPost) {
+    log.info("    Generating " + pageOrPost.outputPath)
     const script = new Script(`
     ${elmJs}; let app = Elm.${pageOrPost.layout}.init({flags: ${JSON.stringify(pageOrPost)}})
     `)
     const dom = new JsDom(`<!DOCTYPE html><html><body></body></html>`, {
         runScripts: "outside-only"
     })
-    
-    try {
-        dom.runVMScript(script)
-        return Promise.delay(1).then(() => ({
-            outputPath: pageOrPost.outputPath,
-            html: "<!doctype html>" + R.replace(/citatsmle-script/g, "script", dom.window.document.body.innerHTML)
-        }))
-    }
-    catch (err) {
-        return Promise.reject(err)
-    }
+
+    dom.runVMScript(script)
+    if (dom.window.document.title == "error") 
+        throw new Error(`Error in ${pageOrPost.inputPath}:\n${dom.window.document.body.firstChild.attributes[0].value}`)
+    else 
+        return "<!doctype html>" + R.replace(/citatsmle-script/g, "script", dom.window.document.body.innerHTML)
 }
 
-// String -> String -> Promise<[()]>/Effects
-function generateHtmlPages(elmJs, configs) {
-    return Promise.all(R.map((page) => {
-        return generateHtml(elmJs, page)
-            .then((pageOutput) => { 
-                const outputPath = R.endsWith("index", pageOutput.outputPath) ? 
-                    pageOutput.outputPath + ".html" : Path.join(pageOutput.outputPath, "index.html")
-                Fs.mkdirsSync(Path.dirname(outputPath))
-                Fs.writeFileSync(outputPath, pageOutput.html) 
-            })
-            .catch((error) => {
-                console.error("Encountered a problem: ", error)
-            })    
-    }, configs))
+// String -> HtmlPage | PostHtmlPage -> ()/Effects
+function writeHtmlPage(page) {
+    const outputPath = R.endsWith("index", page.outputPath) ?
+        page.outputPath + ".html" : Path.join(page.outputPath, "index.html")
+    Fs.mkdirsSync(Path.dirname(outputPath))
+    Fs.writeFileSync(outputPath, page.html)
 }
 
-// [Post] -> [String]
+// [PostHtmlPage] -> [String]
 const extractTags = R.pipe(
-    R.map(R.pipe(R.prop("tags"), R.defaultTo([])))   
-  , R.flatten
-  , R.uniq
+    R.map(R.pipe(R.prop("tags"), R.defaultTo([]))),
+    R.flatten,
+    R.uniq
 )
 
-// String -> [PostConfig] -> [PostConfig]
-const getPostsWithTag = (tag, posts) => 
+// String -> [PostHtmlPage] -> [PostHtmlPage]
+const getPostsWithTag = (tag, posts) =>
     R.filter(R.pipe(R.prop("tags"), R.defaultTo([]), R.map(R.toLower), R.contains(R.toLower(tag))), posts)
 
-// String -> String -> [PostConfig] -> [TagPageConfig]
-function generateTagPageConfigs(outputPath, siteTitle, postConfigs) {
-    return R.map((tag) => ({
-        layout: "Tag",
-        markdown: "",
-        outputPath: Path.join(outputPath, "tags", tag), 
-        posts: getPostsWithTag(tag, postConfigs),
-        section: "",
-        siteTitle: appendTitle(siteTitle, "Tag: " + tag),
-        tag,
-        title: "Tag: " + tag
-    }), extractTags(postConfigs))
+// String -> String -> [PostHtmlPage] -> [TagPage]
+function generateTagPages(elmJs, outputPath, siteTitle, posts) {
+    return R.pipe(
+        extractTags,
+        R.map((tag) => ({
+            layout: "Tag",
+            markdown: "",
+            outputPath: Path.join(outputPath, "tags", tag),
+            posts: getPostsWithTag(tag, posts),
+            section: "",
+            siteTitle: appendTitle(siteTitle, "Tag: " + tag),
+            tag,
+            title: "Tag: " + tag
+        })),
+        R.map((page) => R.merge(page, { html: generateHtml(elmJs, page) }))
+    )(posts)
 }
 
-// [PostConfig] -> [String]
+// [PostHtmlPage] -> [String]
 const extractSections = R.pipe(
-    R.map(R.prop("section"))
-  , R.reject(R.isEmpty)
-  , R.uniq
+    R.map(R.prop("section")),
+    R.reject(R.isEmpty),
+    R.uniq
 )
 
-// Path -> FeedConfig -> [Post] -> ()/Effects
+// Path -> FeedConfig -> [PostHtmlPage] -> ()/Effects
 function generateFeed(outputPath, config, posts) {
     let feed = new Feed(config)
-    
+
     R.forEach((post) => {
         const section = R.isEmpty(post.section) || config.isSectionFeed ? "" : post.section + "/"
         const id = config.link + "/" + section + post.date + "-" + post.slug
         feed.addItem({
-              title: post.title
-            , id: id
-            , link: id
-            , description: post.description || post.excerpt
-            , author: [config.author]
-            , date: new Date(post.date)
-        })        
+            title: post.title,
+            id: id,
+            link: id,
+            description: post.description || post.excerpt,
+            author: [config.author],
+            date: new Date(post.date)
+        })
     }, posts)
-    
-    Fs.writeFileSync(outputPath, feed.rss2())
+
+    const feedType = config.type || "rss"
+    const fileName = { atom: "atom.xml", json: "feed.json", rss: "rss.xml" }
+    const feedFunc = { atom: feed.atom1, json: feed.json1, rss: feed.rss2 }
+
+    log.info(`    Writing ${Path.join(outputPath, fileName[feedType])}`)
+    Fs.writeFileSync(Path.join(outputPath, fileName[feedType]), feedFunc[feedType]())
 }
 
-// String -> [PostConfig] -> ()/Effects
-function generateFeeds(feedConfig, outputPath, postConfigs) {
-    console.log("Generating feeds...")
-    console.log(`  Writing ${Path.join(outputPath, "rss.xml")}`)
-    const sections = extractSections(postConfigs)
-    generateFeed(Path.join(outputPath, "rss.xml")
-        , R.merge(feedConfig, {isSectionFeed: false}), postConfigs)   
+// String -> [PostHtmlPage] -> ()/Effects
+function generateFeeds(feedConfig, outputPath, posts) {
+    const sections = extractSections(posts)
+    generateFeed(outputPath, R.merge(feedConfig, { isSectionFeed: false }), posts)
 
     R.forEach((section) => {
-        console.log(`  Writing ${Path.join(outputPath, section, "rss.xml")}`)
-        generateFeed(Path.join(outputPath, section, "rss.xml")
-            , R.evolve({
-                      title: R.concat(R.__, `/${section}`)
-                    , id: R.concat(R.__, `/${section}`)
-                    , link: R.concat(R.__, `/${section}`)
-                }, R.merge(feedConfig, {isSectionFeed: true}))
-            , getPostsWithTag(section, postConfigs))    
+        generateFeed(
+            Path.join(outputPath, section),
+            R.evolve({
+                title: R.concat(R.__, `/${section}`),
+                id: R.concat(R.__, `/${section}`),
+                link: R.concat(R.__, `/${section}`)
+            }, R.merge(feedConfig, { isSectionFeed: true })),
+            getPostsWithTag(section, posts))
     }, sections)
 }
 
 // DuplicateConfig -> String -> ()/Effects
 function duplicatePages(config, outputPath) {
-    console.log("Duplicating pages...")
     R.forEachObjIndexed((dest, source) => {
         if (Fs.pathExistsSync(source) && Fs.pathExistsSync(dest)) {
             Fs.copySync(Path.join(outputPath, source), Path.join(outputPath, dest))
@@ -315,89 +381,223 @@ function duplicatePages(config, outputPath) {
     }, config)
 }
 
-// () -> ()/Effects
-function generateScaffold() {
-    console.log("Generating scaffold...")
-    Fs.copySync(Path.join(__dirname, "..", "scaffold"), process.cwd())
+// String -> ()/Effects
+function copyResources(outputPath) {
+    if (Fs.pathExistsSync("_resources")) 
+        Fs.copySync("_resources", outputPath)
+    else
+        ; // Do nothing - resources directory not present
 }
 
-// () -> ()/Effects
-function printHelp() {
-    R.forEach(console.log, [ "Usage:\n"
-        , "Elmstatic has to be run from the site directory\n"
-        , "$ elmstatic       -> generate HTML for an existing site in the specified output directory"
-        , "$ elmstatic init  -> generate a scaffold for a new site in the current directory\n"
-        , "See https://korban.net/elm/elmstatic for more information"
-    ])
+// [PageConfig] -> [PostConfig] -> {includeDrafts: Bool} -> ()/Effects
+function generateEverything(pages, posts, options) {
+    // Dependencies between different inputs and outputs look something like this, 
+    // (ie to build elm.js we need to read all page/post content to get both 
+    // page and post configs), and this could be used to optimise which steps
+    // are carried out on a given input change:
+    // const buildDependencies = {
+    //     config: [],
+    //     resources: ["config"],
+    //     pageConfigs: ["config"],
+    //     postConfigs: ["config"],
+    //     elmJs: ["pageConfigs", "postConfigs"],
+    //     tagPageConfigs: ["postConfigs"],
+    //     feeds: ["postConfigs"],
+    //     pages: ["elmJs"],
+    //     posts: ["elmJs"],
+    //     tagPages: ["elmJs", "tagPageConfigs"],
+    //     aliases: ["pages", "posts", "tagPages"]
+    // }
+
+    const config = readConfig()
+
+    const newPages = generatePageConfigs(pages, config.outputDir, config.siteTitle, Glob.sync("**/*.*(md|emu)", { cwd: "_pages" }))
+    const newPosts = generatePostConfigs(posts, config.outputDir, config.siteTitle, 
+        config.allowedTags, options.includeDrafts, Glob.sync("_posts/**/*.*(md|emu)"))
+
+    const layouts = R.pipe(
+        R.map(R.prop("layout")),
+        R.concat(R.isEmpty(newPosts) ? [] : ["Tag"]),
+        R.uniq
+    )(R.concat(newPages, newPosts)) 
+
+    log("  Compiling layouts")
+    const elmJs = buildLayouts(config.elm, layouts)
+
+    log("  Generating pages")
+    const newPagesWithHtml = generatePages(elmJs, newPages)
+
+    log("  Generating posts")
+    const newPostsWithHtml = generatePosts(elmJs, newPosts)
+
+    log("  Generating tag pages")
+    const tagPages = generateTagPages(elmJs, config.outputDir, config.siteTitle, newPosts)
+
+    const dotGitPath = Path.join(config.outputDir, ".git")
+    const dotGitContent = Fs.pathExistsSync(dotGitPath) ?
+        Fs.readFileSync(Path.join(config.outputDir, ".git")).toString() : null
+
+    log(`  Cleaning out the output path (${config.outputDir})`)
+    Fs.emptyDirSync(config.outputDir)
+
+    if (R.is(String, dotGitContent))
+        Fs.writeFileSync(dotGitPath, dotGitContent)
+    else
+        ; // Do nothing, no .git file existed
+
+    log("  Writing HTML")
+    R.forEach(writeHtmlPage, newPagesWithHtml)
+    R.forEach(writeHtmlPage, newPostsWithHtml)
+    R.forEach(writeHtmlPage, tagPages)
+
+    log("  Generating feeds")
+    generateFeeds(config.feed, config.outputDir, R.reject(R.propEq("isIndex", true), newPosts))
+    log("  Duplicating pages")
+    duplicatePages(config.copy, config.outputDir)
+    log("  Copying resources")
+    copyResources(config.outputDir)
+
+    return { pages: newPagesWithHtml, posts: newPostsWithHtml }
 }
+
+// {includeDrafts: Bool} -> {pages: [HtmlPage], posts: [HtmlPage]}/Effects
+function buildSite(options) {
+    log("Building the site" + (options.includeDrafts ? ", including draft content" : ""))
+    return generateEverything([], [], options)
+}
+
+// String -> String
+function humaniseFsEvent(event) {
+    switch (event) {
+        case "add":
+        case "addDir":
+            return "added"
+        case "change":
+            return "updated"
+        case "unlink":
+        case "unlinkDir":
+            return "deleted"
+        default:
+            return "generated event " + event
+    }
+}
+
+// Int -> Function -> Function/Effects
+// Accumulate events/paths until the function hasn't been called for <delay> ms, 
+// then call `func` with the accumulated array of events/paths. The reason to use 
+// this is that chokidar has no notion of rename; instead, there's a pair of 
+// `unlink` and `add` events
+function debounceFileEvents(delay, func) {
+    let timeoutId = null
+    let events = []
+    return (event, path) => {
+        events.push({event, path})
+        const later = () => { 
+            func(events)
+            events = []
+        }
+        if (!R.isNil(timeoutId)) {
+            clearTimeout(timeoutId)
+        }
+        else
+            ;  // No timeout yet
+        timeoutId = setTimeout(later, delay)
+    }
+}
+
+// {includeDrafts: Bool} -> ()/Effects
+function buildSiteAndWatch(options) {
+    const result = buildSite(options)
+    let pages = result.pages
+    let posts = result.posts
+
+    log("Ready! Watching for changes...")
+
+    const watchPaths = ["_layouts", "_pages", "_posts", "_resources", "config.json", "elm.json"]
+    let watcher = Chokidar.watch(watchPaths, { ignoreInitial: true, followSymlinks: false })
+
+    watcher.on("all", debounceFileEvents(100, (events) => {
+        try {  // The try block is needed to prevent Node printing a stack trace on exception
+            R.forEach((e) => { log.info(`${e.path} ${humaniseFsEvent(e.event)}`) }, events)
+
+            const layoutsChanged = R.any(R.pipe(R.prop("path"), R.startsWith("_layouts")), events)
+            const result = generateEverything(layoutsChanged ? [] : pages, layoutsChanged ? [] : posts, options)
+            pages = result.pages
+            posts = result.posts
+            log("Ready! Watching for more changes...")    
+        }
+        catch (err) {
+            if (!R.isEmpty(err.message)) {
+                log.error("\n" + err.message) 
+            }
+            else
+                ; // No message means it's an `elm make` error, so it's already printed
+            log("Error! Watching for more changes...")    
+        }
+        
+    }))
+}
+
+// Bool -> ()/Effects
+function generateScaffold(options) {
+    const files = Fs.readdirSync(".")
+    if (R.isEmpty(files) || (R.length(files) == 1 && files[0] == ".git")) {
+        log("Generating scaffold")
+        Fs.copySync(Path.join(__dirname, "..", "scaffold", options.forElmMarkup ? "emu" : "md"), process.cwd())
+    }
+    else {
+        throw new Error("The directory is not empty. Please run the command in an empty directory.")
+    }
+}
+
+const log = console.log
+log.error = console.error
+log.info = () => {}
+
+// LogObject -> ()/Effects
+const enableVerboseLogging = R.curry((log, isVerbose) => log.info = console.info)
+
 
 // ACTION STARTS HERE
 
-let mode = "help"
-if (process.argv.length < 3)
-    mode = "generate"
-else if (process.argv[2] == "init")
-    mode = "init"
-else if (process.argv[2] == "draft")
-    mode = "draft"
+flags
+    .version(JSON.parse(Fs.readFileSync(Path.join(__dirname, "..", "package.json")).toString()).version)
+    .usage(
+        `[command] [options]
+  -> Elmstatic has to be run from the site directory.
+  --> Run elmstatic <command> -h to see command-specific options.
+  ---> See https://korban.net/elm/elmstatic for more information.
+        `)
+    .option("-v, --verbose", "show more information when generating output", enableVerboseLogging(log))
 
-if (mode == "generate" || mode == "draft") {
-    try {
-        Fs.accessSync("config.json", Fs.constants.R_OK)
-    } 
-    catch (err) {
-        console.error("Couldn't find config.json. Is this a new project? Run `elmstatic init` to generate a scaffold.")
-        return
-    }
+flags
+    .command("init", )
+    .description("Generate a scaffold for a new site in the current directory")
+    .option("--elm-markup", "provide an elm-markup scaffold instead of the default Markdown")
+    .action((cmd) => generateScaffold({ forElmMarkup: cmd.elmMarkup }))
 
-    const config = JSON.parse(Fs.readFileSync("config.json").toString())
-    const {copy, feed, elm, outputDir, siteTitle} = config
-    const allowedTags = R.map(R.toLower, R.defaultTo([], config.tags))
-    const includeDrafts = (mode == "draft")
+flags
+    .command("watch")  
+    .description("Watch for source file changes and rebuild the site incrementally")
+    .option("-d, --drafts", "include draft (future dated) posts")
+    .action((cmd) => buildSiteAndWatch({ includeDrafts: cmd.drafts }))
 
-    try {            
-        console.log(`Compiling layouts...`)
-        const elmJs = buildLayouts(elm)
+flags
+    .command("build")
+    .description("Build the site (runs by default if no command is supplied)")
+    .option("-d, --drafts", "include draft (future dated) posts")
+    .action((cmd) => buildSite({ includeDrafts: cmd.drafts }))
 
-        console.log(`Reading .md files...`)
-        const pageConfigs = generatePageConfigs(outputDir, siteTitle, Glob.sync("**/*.md", {cwd: "_pages"}))
-        const postConfigs = generatePostConfigs(outputDir, siteTitle, allowedTags, includeDrafts, Glob.sync("_posts/**/*.md"))
-        const tagPageConfigs = generateTagPageConfigs(outputDir, siteTitle, postConfigs)
-
-        const dotGitPath = Path.join(outputDir, ".git")
-        const dotGitContent = Fs.pathExistsSync(dotGitPath) ? 
-            Fs.readFileSync(Path.join(outputDir, ".git")).toString() : null
-
-        console.log(`Cleaning out the output path (${outputDir})...`)
-        Fs.emptyDirSync(outputDir)
-
-        if (R.is(String, dotGitContent))
-            Fs.writeFileSync(dotGitPath, dotGitContent)
-        else 
-            ; // Do nothing, no .git file existed
-
-        console.log("Generating HTML...")
-        generateHtmlPages(elmJs, pageConfigs)
-        .then(() => generateHtmlPages(elmJs, postConfigs))
-        .then(() => generateHtmlPages(elmJs, tagPageConfigs))
-        .then(() => generateFeeds(feed, outputDir, postConfigs))
-        .then(() => duplicatePages(copy, outputDir))
-        .then(() => {
-            console.log("Copying resources...")
-            if (Fs.pathExistsSync("_resources"))
-                Fs.copySync("_resources", outputDir)    
-            else
-                ; // Do nothing - resources dir not present
-        })
-        .then(() => console.log("Done!"))
-    } catch (err) {
-        console.log(err.message)
-    }
-} 
-else if (mode == "init") {
-    generateScaffold()
+try {
+    if (process.argv.length < 3)
+        buildSite({ includeDrafts: false })
+    else
+        flags.parse(process.argv)  // This invokes command & option callbacks 
+}    
+catch (err) {
+    if (!R.isEmpty(err.message))
+        log.error("\n" + err.message)
+    else 
+        ; // No message means it's an elm make error, so it's already printed
+    process.exitCode = 1
 }
-else {
-    printHelp()
-}
-

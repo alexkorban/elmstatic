@@ -1,3 +1,37 @@
+0.6.4 (2020-02-15)
+
+* Output an error when the Elm executable isn't found 
+
+0.6.3 (2019-11-26)
+
+* Add support for Elm 0.19.1
+
+0.6.2 (2019-09-17)
+
+* Replace package-lock.json with npm-shrinkwrap.json
+
+0.6.1 (2019-09-03)
+
+* Add support for Atom and JSON feeds in addition to RSS (thanks to Christian Wesselhoeft)
+* Fix draft post date check
+
+0.6.0 (2019-08-05)
+
+* Add support for elm-markup and --elm-markup flag for `elmstatic init`
+
+0.5.1 (2019-07-12)
+
+* Stop watch mode terminating on errors
+
+0.5.0 (2019-07-08)
+
+* Add watch mode
+* Add -v/--verbose flag to control terminal output
+
+0.4.1 (2019-05-25)
+
+* Fix child process launch error on Windows
+
 0.4.0 (2019-04-10)
 
 WARNING: This release is not backwards compatible with the previous release. The expected directory and
@@ -25,7 +59,7 @@ v0.3.4 and Elm 0.18.
 
 * Add support for sections (Pages/Section/About.elm rendered to /section/about)
 * Add support for index pages (Pages/Index.elm rendered to /, Pages/Section/Index.elm rendered to /section)
-* Allow specifying a posprocessing page copy step in config.json (eg to make /projects available as /work as well)
+* Allow specifying a postprocessing page copy step in config.json (eg to make /projects available as /work as well)
 
 0.2.4 (2018-05-03)
 

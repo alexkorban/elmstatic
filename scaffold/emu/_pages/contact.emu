@@ -1,0 +1,4 @@
+|> Metadata
+    title = Contact
+
+Drop me a line at [me@example.com]{link | url = mailto:me@example.com}.

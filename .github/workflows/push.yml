@@ -1,0 +1,26 @@
+on: push
+name: Smoke test
+jobs:
+  test:
+    strategy:
+      matrix:
+        node-version: [10, 12]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        elm-version: [latest-0.19.0, latest-0.19.1]
+    name: Test with Elm ${{matrix.elm-version}} | Node ${{ matrix.node-version }} | ${{ matrix.os }}
+    runs-on: ${{matrix.os}}
+    steps:
+    - uses: actions/checkout@master
+    - name: Setup Node and packages
+      uses: actions/setup-node@master
+      with:
+        args: npm install
+    - name: Install Elm
+      uses: actions/setup-node@master
+      with:
+        node-version: ${{ matrix.node-version }}
+        args: npm install elm@${{ matrix.elm-version }}
+    - name: Test
+      uses: actions/setup-node@master
+      with:
+        args: npm test

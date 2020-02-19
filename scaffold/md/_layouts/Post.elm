@@ -32,6 +32,7 @@ main : Elmstatic.Layout
 main =
     Elmstatic.layout Elmstatic.decodePost <|
         \content ->
-            Page.layout
-                content.title
-                [ metadataHtml content, Page.markdown content.markdown ]
+            Ok <|
+                Page.layout
+                    content.title
+                    [ metadataHtml content, Page.markdown content.content ]
