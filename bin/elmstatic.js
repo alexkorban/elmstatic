@@ -22,7 +22,7 @@ function readConfig() {
 
     const config = JSON.parse(Fs.readFileSync("config.json").toString())
     const allowedTags = R.map(R.toLower, R.defaultTo([], config.tags))
-    return R.merge(config, { allowedTags })
+    return R.mergeLeft(config, { allowedTags })
 }
 
 // String -> [String] -> String/Effects
@@ -48,21 +48,40 @@ function dropExtension(fileName) {
     return R.slice(0, R.lastIndexOf(".", fileName), fileName)
 }
 
-// String -> {contentStartIndex: Int, preamble: String}
+// String -> String 
+function findPreambleMarker(contents) { 
+    const preambleMarker = "---"
+    if (R.startsWith(preambleMarker + "\n", contents)) {
+        return preambleMarker + "\n"
+    }
+    else if (R.startsWith(preambleMarker + "\r\n", contents)) {
+        return preambleMarker + "\r\n"
+    }
+    else {
+        return ""
+    }
+}
+
+// String -> {contentStartIndex: Int, preamble: String, lineSeparator: String}
 function extractPreamble(contents) {
-    const preambleMarker = "---\n"
-    if (!R.startsWith(preambleMarker, contents)) {
-        return { contentStartIndex: 0, preamble: "" }
+    const preambleMarker = findPreambleMarker(contents)
+    const noPreamble = { contentStartIndex: 0, preamble: "", lineSeparator: "\n" }
+    if (R.isEmpty(preambleMarker)) {
+        return noPreamble
     }
     else {
         const endOfPreamble = contents.indexOf(preambleMarker, R.length(preambleMarker))
 
         if (endOfPreamble == -1) {
-            return { contentStartIndex: 0, preamble: "" }
+            return noPreamble
         }
         else {
             const preamble = R.slice(R.length(preambleMarker), endOfPreamble, contents)
-            return { contentStartIndex: endOfPreamble + R.length(preambleMarker), preamble: preamble }
+            return { 
+                contentStartIndex: endOfPreamble + R.length(preambleMarker), 
+                preamble: preamble,
+                lineSeparator: R.endsWith("\r\n", preambleMarker) ? "\r\n" : "\n"
+            }
         }
     }
 }
@@ -87,43 +106,52 @@ function unquote(s) {
 const appendTitle = R.curry((title, s) => R.isNil(title) || R.isEmpty(title) ? s : s + " | " + title)
 
 // String -> {[<key>: String]}
-const parsePreamble = R.pipe(
-    R.split("\n"),
-    R.reject(R.isEmpty),
-    R.map(parsePreambleLine),
-    R.fromPairs
-)
+const parsePreamble = R.curry((lineSeparator, preamble) => {
+    return R.pipe(
+        R.split(lineSeparator),
+        R.reject(R.isEmpty),
+        R.map(parsePreambleLine),
+        R.fromPairs
+    )(preamble)
+})
 
-// String -> {[<key>: String]}
+
+// String -> {[<key>: String] }
 function parseMarkdown(contents) {
-    const { contentStartIndex, preamble } = extractPreamble(contents)
+    const { contentStartIndex, preamble, lineSeparator } = extractPreamble(contents)
     const contentsWithoutPreamble = R.drop(contentStartIndex, contents)
     const excerpt = R.pipe(removeMarkdown, R.slice(0, 500), R.concat(R.__, "..."))(contentsWithoutPreamble)
-    return R.merge(parsePreamble(preamble), { excerpt, markdown: contentsWithoutPreamble })
+    return R.mergeLeft(parsePreamble(lineSeparator, preamble), { excerpt, markdown: contentsWithoutPreamble })
 }
 
 // String -> {[<key>: String]}
 function parseElmMarkupPreamble(contents) {
-    const layoutMatches = R.match(/\|>\s*Metadata\s*/, contents)
-    const endOfPreamble = R.match(/\n\s*\n/, contents)
-    if (R.isEmpty(layoutMatches) || R.isEmpty(endOfPreamble)) {
+    const layoutMatches = R.match(/\|>\s*Metadata\s*\n/, contents)
+    if (R.isEmpty(layoutMatches)) {
         return {}
     }
     else {
-        return R.pipe(
-            R.slice(R.length(layoutMatches[0]), endOfPreamble.index),
-            R.split(/\s*\n\s+/),
-            R.map(R.pipe(R.split(/\s*=\s*/), R.map(R.trim))),
-            R.fromPairs,
-            R.mergeAll
-        )(contents)
-    }        
+        const lineSeparator = R.endsWith("\r\n", layoutMatches[0]) ? "\r\n" : "\n"
+        const endOfPreamble = R.match(new RegExp(lineSeparator + "\\s*" + lineSeparator), contents)
+        if (R.isEmpty(endOfPreamble)) {
+            return {}
+        }
+        else {
+            return R.pipe(
+                R.slice(R.length(layoutMatches[0]), endOfPreamble.index),
+                R.split(new RegExp("\\s*" + lineSeparator + "\\s+")),
+                R.map(R.pipe(R.split(/\s*=\s*/), R.map(R.trim))),
+                R.fromPairs,
+                R.mergeAll
+            )(contents)
+        }        
+    }
 }
 
 // String -> {[<key>: String]}
 function parseElmMarkup(contents) {
     const preamble = parseElmMarkupPreamble(contents)
-    return R.merge(preamble, { content: contents })
+    return R.mergeLeft(preamble, { content: contents })
 }
 
 // String -> String -> {outputPath: String}
@@ -160,15 +188,15 @@ const generatePageConfig = R.curry((pages, outputPath, siteTitle, pageFileName) 
         if (!R.isNil(attrs.contentSource)) {
             const transcludedContents = readFile(Path.join("_pages", attrs.contentSource + ext))
             const transcludedAttrs = ext == ".md" ? parseMarkdown(transcludedContents) : parseElmMarkup(transcludedContents)
-            attrs = R.merge(attrs, R.pick(["content", "excerpt", "markdown"], transcludedAttrs))
+            attrs = R.mergeLeft(attrs, R.pick(["content", "excerpt", "markdown"], transcludedAttrs))
         }
         else
             ; // Do nothing - the file doesn't link to another file's content
 
         return R.pipe(
-            R.merge(R.__, attrs),
-            R.merge({ siteTitle: appendTitle(siteTitle, attrs.title) }),
-            R.merge(parsePageFileName(outputPath, pageFileName))
+            R.mergeLeft(R.__, attrs),
+            R.mergeLeft({ siteTitle: appendTitle(siteTitle, attrs.title) }),
+            R.mergeLeft(parsePageFileName(outputPath, pageFileName))
         )({ layout: "Page", mtime, pageFileName })
     }
     else
@@ -183,7 +211,7 @@ function generatePageConfigs(pages, outputPath, siteTitle, pageFileNames) {
 
 // String -> [PostConfig] -> [HtmlPage]/Effects
 function generatePages(elmJs, pages) {
-    return R.map((page) => R.isNil(page.html) ? R.merge(page, { html: generateHtml(elmJs, page) }) : page, pages)
+    return R.map((page) => R.isNil(page.html) ? R.mergeLeft(page, { html: generateHtml(elmJs, page) }) : page, pages)
 }
 
 // String -> String -> {[<key>: Any]}
@@ -236,12 +264,12 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
                     ; // Don't do tag validation if allowed tags are not defined or the post has no tags
 
                 return R.pipe(
-                    R.merge(R.__, attrs),
-                    R.merge({ siteTitle: appendTitle(siteTitle, attrs.title) }),
+                    R.mergeLeft(R.__, attrs),
+                    R.mergeLeft({ siteTitle: appendTitle(siteTitle, attrs.title) }),
                     R.evolve({
                         tags: R.pipe(R.append(fileNameAttrs.section), R.reject(R.isEmpty))
                     }),
-                    R.merge(fileNameAttrs)
+                    R.mergeLeft(fileNameAttrs)
                 )({ layout: fileNameAttrs.isIndex ? "Posts" : "Post", mtime, postFileName })
             }
             else
@@ -254,7 +282,7 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
         if (postConfig.isIndex) {
             const filter = R.isEmpty(postConfig.section) ?
                 R.identity : R.propEq("section", postConfig.section)
-            return R.merge(postConfig,
+            return R.mergeLeft(postConfig,
                 { posts: R.filter(R.both(filter, R.propEq("isIndex", false)), postConfigs) })
         }
         else {
@@ -265,7 +293,7 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
 
 // String -> [PostConfig] -> [PostHtmlPage]/Effects
 function generatePosts(elmJs, posts) {
-    return R.map((post) => R.isNil(post.html) ? R.merge(post, { html: generateHtml(elmJs, post) }) : post, posts)
+    return R.map((post) => R.isNil(post.html) ? R.mergeLeft(post, { html: generateHtml(elmJs, post) }) : post, posts)
 }
 
 // String -> PageConfig | PostConfig -> HtmlString
@@ -318,7 +346,7 @@ function generateTagPages(elmJs, outputPath, siteTitle, posts) {
             tag,
             title: "Tag: " + tag
         })),
-        R.map((page) => R.merge(page, { html: generateHtml(elmJs, page) }))
+        R.map((page) => R.mergeLeft(page, { html: generateHtml(elmJs, page) }))
     )(posts)
 }
 
@@ -357,7 +385,7 @@ function generateFeed(outputPath, config, posts) {
 // String -> [PostHtmlPage] -> ()/Effects
 function generateFeeds(feedConfig, outputPath, posts) {
     const sections = extractSections(posts)
-    generateFeed(outputPath, R.merge(feedConfig, { isSectionFeed: false }), posts)
+    generateFeed(outputPath, R.mergeLeft(feedConfig, { isSectionFeed: false }), posts)
 
     R.forEach((section) => {
         generateFeed(
@@ -366,7 +394,7 @@ function generateFeeds(feedConfig, outputPath, posts) {
                 title: R.concat(R.__, `/${section}`),
                 id: R.concat(R.__, `/${section}`),
                 link: R.concat(R.__, `/${section}`)
-            }, R.merge(feedConfig, { isSectionFeed: true })),
+            }, R.mergeLeft(feedConfig, { isSectionFeed: true })),
             getPostsWithTag(section, posts))
     }, sections)
 }
