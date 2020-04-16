@@ -1,3 +1,7 @@
+0.6.6 (2020-04-17)
+
+* Fix regressions due to botched function upgrade
+
 0.6.5 (2020-04-16)
 
 * Support CRLF line endings

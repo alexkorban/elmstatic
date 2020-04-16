@@ -22,7 +22,7 @@ function readConfig() {
 
     const config = JSON.parse(Fs.readFileSync("config.json").toString())
     const allowedTags = R.map(R.toLower, R.defaultTo([], config.tags))
-    return R.mergeLeft(config, { allowedTags })
+    return R.mergeRight(config, { allowedTags })
 }
 
 // String -> [String] -> String/Effects
@@ -121,7 +121,7 @@ function parseMarkdown(contents) {
     const { contentStartIndex, preamble, lineSeparator } = extractPreamble(contents)
     const contentsWithoutPreamble = R.drop(contentStartIndex, contents)
     const excerpt = R.pipe(removeMarkdown, R.slice(0, 500), R.concat(R.__, "..."))(contentsWithoutPreamble)
-    return R.mergeLeft(parsePreamble(lineSeparator, preamble), { excerpt, markdown: contentsWithoutPreamble })
+    return R.mergeRight(parsePreamble(lineSeparator, preamble), { excerpt, markdown: contentsWithoutPreamble })
 }
 
 // String -> {[<key>: String]}
@@ -151,7 +151,7 @@ function parseElmMarkupPreamble(contents) {
 // String -> {[<key>: String]}
 function parseElmMarkup(contents) {
     const preamble = parseElmMarkupPreamble(contents)
-    return R.mergeLeft(preamble, { content: contents })
+    return R.mergeRight(preamble, { content: contents })
 }
 
 // String -> String -> {outputPath: String}
@@ -188,15 +188,15 @@ const generatePageConfig = R.curry((pages, outputPath, siteTitle, pageFileName) 
         if (!R.isNil(attrs.contentSource)) {
             const transcludedContents = readFile(Path.join("_pages", attrs.contentSource + ext))
             const transcludedAttrs = ext == ".md" ? parseMarkdown(transcludedContents) : parseElmMarkup(transcludedContents)
-            attrs = R.mergeLeft(attrs, R.pick(["content", "excerpt", "markdown"], transcludedAttrs))
+            attrs = R.mergeRight(attrs, R.pick(["content", "excerpt", "markdown"], transcludedAttrs))
         }
         else
             ; // Do nothing - the file doesn't link to another file's content
 
         return R.pipe(
-            R.mergeLeft(R.__, attrs),
-            R.mergeLeft({ siteTitle: appendTitle(siteTitle, attrs.title) }),
-            R.mergeLeft(parsePageFileName(outputPath, pageFileName))
+            R.mergeRight(R.__, attrs),
+            R.mergeRight({ siteTitle: appendTitle(siteTitle, attrs.title) }),
+            R.mergeRight(parsePageFileName(outputPath, pageFileName))
         )({ layout: "Page", mtime, pageFileName })
     }
     else
@@ -211,7 +211,7 @@ function generatePageConfigs(pages, outputPath, siteTitle, pageFileNames) {
 
 // String -> [PostConfig] -> [HtmlPage]/Effects
 function generatePages(elmJs, pages) {
-    return R.map((page) => R.isNil(page.html) ? R.mergeLeft(page, { html: generateHtml(elmJs, page) }) : page, pages)
+    return R.map((page) => R.isNil(page.html) ? R.mergeRight(page, { html: generateHtml(elmJs, page) }) : page, pages)
 }
 
 // String -> String -> {[<key>: Any]}
@@ -264,12 +264,12 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
                     ; // Don't do tag validation if allowed tags are not defined or the post has no tags
 
                 return R.pipe(
-                    R.mergeLeft(R.__, attrs),
-                    R.mergeLeft({ siteTitle: appendTitle(siteTitle, attrs.title) }),
+                    R.mergeRight(R.__, attrs),
+                    R.mergeRight({ siteTitle: appendTitle(siteTitle, attrs.title) }),
                     R.evolve({
                         tags: R.pipe(R.append(fileNameAttrs.section), R.reject(R.isEmpty))
                     }),
-                    R.mergeLeft(fileNameAttrs)
+                    R.mergeRight(fileNameAttrs)
                 )({ layout: fileNameAttrs.isIndex ? "Posts" : "Post", mtime, postFileName })
             }
             else
@@ -282,7 +282,7 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
         if (postConfig.isIndex) {
             const filter = R.isEmpty(postConfig.section) ?
                 R.identity : R.propEq("section", postConfig.section)
-            return R.mergeLeft(postConfig,
+            return R.mergeRight(postConfig,
                 { posts: R.filter(R.both(filter, R.propEq("isIndex", false)), postConfigs) })
         }
         else {
@@ -293,7 +293,7 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
 
 // String -> [PostConfig] -> [PostHtmlPage]/Effects
 function generatePosts(elmJs, posts) {
-    return R.map((post) => R.isNil(post.html) ? R.mergeLeft(post, { html: generateHtml(elmJs, post) }) : post, posts)
+    return R.map((post) => R.isNil(post.html) ? R.mergeRight(post, { html: generateHtml(elmJs, post) }) : post, posts)
 }
 
 // String -> PageConfig | PostConfig -> HtmlString
@@ -346,7 +346,7 @@ function generateTagPages(elmJs, outputPath, siteTitle, posts) {
             tag,
             title: "Tag: " + tag
         })),
-        R.map((page) => R.mergeLeft(page, { html: generateHtml(elmJs, page) }))
+        R.map((page) => R.mergeRight(page, { html: generateHtml(elmJs, page) }))
     )(posts)
 }
 
@@ -385,7 +385,7 @@ function generateFeed(outputPath, config, posts) {
 // String -> [PostHtmlPage] -> ()/Effects
 function generateFeeds(feedConfig, outputPath, posts) {
     const sections = extractSections(posts)
-    generateFeed(outputPath, R.mergeLeft(feedConfig, { isSectionFeed: false }), posts)
+    generateFeed(outputPath, R.mergeRight(feedConfig, { isSectionFeed: false }), posts)
 
     R.forEach((section) => {
         generateFeed(
@@ -394,7 +394,7 @@ function generateFeeds(feedConfig, outputPath, posts) {
                 title: R.concat(R.__, `/${section}`),
                 id: R.concat(R.__, `/${section}`),
                 link: R.concat(R.__, `/${section}`)
-            }, R.mergeLeft(feedConfig, { isSectionFeed: true })),
+            }, R.mergeRight(feedConfig, { isSectionFeed: true })),
             getPostsWithTag(section, posts))
     }, sections)
 }
