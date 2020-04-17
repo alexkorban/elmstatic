@@ -8,6 +8,7 @@
     "elmstatic": "./bin/elmstatic.js"
   },
   "scripts": {
+    "prepublishOnly": "git tag `jq --raw-output \"\\\"v\\\" + .version\" package.json` && git push origin master --tags",
     "start": "$npm_package_bin_elmstatic",
     "test-markdown": "rm -rf $GITHUB_WORKSPACE/test-run && mkdir $GITHUB_WORKSPACE/test-run && cd $GITHUB_WORKSPACE/test-run && $INIT_CWD/bin/elmstatic.js init && $INIT_CWD/bin/elmstatic.js build",
     "test-elm-markup": "rm -rf $GITHUB_WORKSPACE/test-run && mkdir $GITHUB_WORKSPACE/test-run && cd $GITHUB_WORKSPACE/test-run && $INIT_CWD/bin/elmstatic.js init --elm-markup && $INIT_CWD/bin/elmstatic.js build",
