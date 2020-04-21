@@ -10,6 +10,7 @@ const { Script } = require("vm")
 const flags = require("commander")
 const removeMarkdown = require("remove-markdown")
 const { spawn } = require("cross-spawn")
+const fm = require('front-matter')
 
 // () -> Config/Effects
 function readConfig() {
@@ -48,51 +49,18 @@ function dropExtension(fileName) {
     return R.slice(0, R.lastIndexOf(".", fileName), fileName)
 }
 
-// String -> String 
-function findPreambleMarker(contents) { 
-    const preambleMarker = "---"
-    if (R.startsWith(preambleMarker + "\n", contents)) {
-        return preambleMarker + "\n"
-    }
-    else if (R.startsWith(preambleMarker + "\r\n", contents)) {
-        return preambleMarker + "\r\n"
-    }
-    else {
-        return ""
-    }
-}
-
-// String -> {contentStartIndex: Int, preamble: String, lineSeparator: String}
+// String -> {attributes: Json, body: String, bodyBegin: Int, frontmatter: String}
 function extractPreamble(contents) {
-    const preambleMarker = findPreambleMarker(contents)
-    const noPreamble = { contentStartIndex: 0, preamble: "", lineSeparator: "\n" }
-    if (R.isEmpty(preambleMarker)) {
-        return noPreamble
+    const content = fm(contents)
+    if (R.isNil(content.attributes.tags)) {
+        content.attributes.tags = []
     }
-    else {
-        const endOfPreamble = contents.indexOf(preambleMarker, R.length(preambleMarker))
 
-        if (endOfPreamble == -1) {
-            return noPreamble
-        }
-        else {
-            const preamble = R.slice(R.length(preambleMarker), endOfPreamble, contents)
-            return { 
-                contentStartIndex: endOfPreamble + R.length(preambleMarker), 
-                preamble: preamble,
-                lineSeparator: R.endsWith("\r\n", preambleMarker) ? "\r\n" : "\n"
-            }
-        }
+    if (typeof content.attributes.tags == "string") {
+        content.attributes.tags = content.attributes.tags.split(/\s+/)
     }
-}
 
-// String -> [String, String]
-function parsePreambleLine(line) {
-    return R.pipe(
-        R.splitAt(R.indexOf(":", line)),
-        R.evolve({ 1: R.tail }),
-        R.map(R.trim)
-    )(line)
+    return content
 }
 
 // String -> String
@@ -105,23 +73,11 @@ function unquote(s) {
 // String -> String
 const appendTitle = R.curry((title, s) => R.isNil(title) || R.isEmpty(title) ? s : s + " | " + title)
 
-// String -> {[<key>: String]}
-const parsePreamble = R.curry((lineSeparator, preamble) => {
-    return R.pipe(
-        R.split(lineSeparator),
-        R.reject(R.isEmpty),
-        R.map(parsePreambleLine),
-        R.fromPairs
-    )(preamble)
-})
-
-
 // String -> {[<key>: String] }
 function parseMarkdown(contents) {
-    const { contentStartIndex, preamble, lineSeparator } = extractPreamble(contents)
-    const contentsWithoutPreamble = R.drop(contentStartIndex, contents)
-    const excerpt = R.pipe(removeMarkdown, R.slice(0, 500), R.concat(R.__, "..."))(contentsWithoutPreamble)
-    return R.mergeRight(parsePreamble(lineSeparator, preamble), { excerpt, markdown: contentsWithoutPreamble })
+    const { attributes, body } = extractPreamble(contents)
+    const excerpt = R.pipe(removeMarkdown, R.slice(0, 500), R.concat(R.__, "..."))(body)
+    return R.mergeRight(attributes, { excerpt, markdown: body })
 }
 
 // String -> {[<key>: String]}
@@ -144,7 +100,7 @@ function parseElmMarkupPreamble(contents) {
                 R.fromPairs,
                 R.mergeAll
             )(contents)
-        }        
+        }
     }
 }
 
@@ -156,8 +112,8 @@ function parseElmMarkup(contents) {
 
 // String -> String -> {outputPath: String}
 function parsePageFileName(outputPath, pageFileName) {
-    return { 
-        inputPath: Path.join("_pages", pageFileName), 
+    return {
+        inputPath: Path.join("_pages", pageFileName),
         outputPath: Path.join(outputPath, dropExtension(pageFileName)),
         format: Path.extname(pageFileName) == ".md" ? "md" : "emu"
     }
@@ -207,7 +163,7 @@ const generatePageConfig = R.curry((pages, outputPath, siteTitle, pageFileName) 
 function generatePageConfigs(pages, outputPath, siteTitle, pageFileNames) {
     return R.map(generatePageConfig(pages, outputPath, siteTitle), pageFileNames)
 }
-    
+
 
 // String -> [PostConfig] -> [HtmlPage]/Effects
 function generatePages(elmJs, pages) {
@@ -249,7 +205,7 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
                 const contents = Fs.readFileSync(Fs.realpathSync(postFileName)).toString()
                 const attrs = R.pipe(
                     ext == ".md" ? parseMarkdown : parseElmMarkup,
-                    R.evolve({ tags: R.pipe(R.split(/\s+/), R.map(R.trim), R.reject(R.isEmpty)), title: unquote })
+                    R.evolve({ tags: R.pipe(R.map(R.trim), R.reject(R.isEmpty)), title: unquote })
                 )(contents)
                 const fileNameAttrs = parsePostFileName(outputPath, outputFileName)
 
@@ -307,9 +263,9 @@ function generateHtml(elmJs, pageOrPost) {
     })
 
     dom.runVMScript(script)
-    if (dom.window.document.title == "error") 
+    if (dom.window.document.title == "error")
         throw new Error(`Error in ${pageOrPost.inputPath}:\n${dom.window.document.body.firstChild.attributes[0].value}`)
-    else 
+    else
         return "<!doctype html>" + R.replace(/citatsmle-script/g, "script", dom.window.document.body.innerHTML)
 }
 
@@ -408,7 +364,7 @@ function duplicatePages(config, outputPath) {
 
 // String -> ()/Effects
 function copyResources(outputPath) {
-    if (Fs.pathExistsSync("_resources")) 
+    if (Fs.pathExistsSync("_resources"))
         Fs.copySync("_resources", outputPath)
     else
         ; // Do nothing - resources directory not present
@@ -437,14 +393,14 @@ function generateEverything(pages, posts, options) {
     const config = readConfig()
 
     const newPages = generatePageConfigs(pages, config.outputDir, config.siteTitle, Glob.sync("**/*.*(md|emu)", { cwd: "_pages" }))
-    const newPosts = generatePostConfigs(posts, config.outputDir, config.siteTitle, 
+    const newPosts = generatePostConfigs(posts, config.outputDir, config.siteTitle,
         config.allowedTags, options.includeDrafts, Glob.sync("_posts/**/*.*(md|emu)"))
 
     const layouts = R.pipe(
         R.map(R.prop("layout")),
         R.concat(R.isEmpty(newPosts) ? [] : ["Tag"]),
         R.uniq
-    )(R.concat(newPages, newPosts)) 
+    )(R.concat(newPages, newPosts))
 
     log("  Compiling layouts")
     const elmJs = buildLayouts(config.elm, layouts)
@@ -517,7 +473,7 @@ function debounceFileEvents(delay, func) {
     let events = []
     return (event, path) => {
         events.push({event, path})
-        const later = () => { 
+        const later = () => {
             func(events)
             events = []
         }
@@ -549,17 +505,17 @@ function buildSiteAndWatch(options) {
             const result = generateEverything(layoutsChanged ? [] : pages, layoutsChanged ? [] : posts, options)
             pages = result.pages
             posts = result.posts
-            log("Ready! Watching for more changes...")    
+            log("Ready! Watching for more changes...")
         }
         catch (err) {
             if (!R.isEmpty(err.message)) {
-                log.error("\n" + err.message) 
+                log.error("\n" + err.message)
             }
             else
                 ; // No message means it's an `elm make` error, so it's already printed
-            log("Error! Watching for more changes...")    
+            log("Error! Watching for more changes...")
         }
-        
+
     }))
 }
 
@@ -596,13 +552,13 @@ flags
     .option("-v, --verbose", "show more information when generating output", enableVerboseLogging(log))
 
 flags
-    .command("init", )
+    .command("init")
     .description("Generate a scaffold for a new site in the current directory")
     .option("--elm-markup", "provide an elm-markup scaffold instead of the default Markdown")
     .action((cmd) => generateScaffold({ forElmMarkup: cmd.elmMarkup }))
 
 flags
-    .command("watch")  
+    .command("watch")
     .description("Watch for source file changes and rebuild the site incrementally")
     .option("-d, --drafts", "include draft (future dated) posts")
     .action((cmd) => buildSiteAndWatch({ includeDrafts: cmd.drafts }))
@@ -618,11 +574,11 @@ try {
         buildSite({ includeDrafts: false })
     else
         flags.parse(process.argv)  // This invokes command & option callbacks 
-}    
+}
 catch (err) {
     if (!R.isEmpty(err.message))
         log.error("\n" + err.message)
-    else 
+    else
         ; // No message means it's an elm make error, so it's already printed
     process.exitCode = 1
 }
