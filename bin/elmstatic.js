@@ -110,7 +110,6 @@ function readFile(unresolvedFileName) {
 
 // [PageConfig] ->  String -> String -> String -> HtmlPage/Effects
 const generatePageConfig = R.curry((pages, outputPath, siteTitle, pageFileName) => {
-    log(pageFileName)
     const mtime = Fs.lstatSync(Path.join("_pages", pageFileName)).mtime
     const ext = Path.extname(pageFileName)
     const existingPage = R.find(R.propEq("pageFileName", pageFileName), pages)
