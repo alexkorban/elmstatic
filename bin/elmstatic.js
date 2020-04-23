@@ -7,10 +7,10 @@ const JsDom = require("jsdom").JSDOM
 const Path = require("path")
 const R = require("ramda")
 const { Script } = require("vm")
+const extractFrontmatter = require("front-matter")
 const flags = require("commander")
 const removeMarkdown = require("remove-markdown")
 const { spawn } = require("cross-spawn")
-const fm = require('front-matter')
 
 // () -> Config/Effects
 function readConfig() {
@@ -49,35 +49,15 @@ function dropExtension(fileName) {
     return R.slice(0, R.lastIndexOf(".", fileName), fileName)
 }
 
-// String -> {attributes: Json, body: String, bodyBegin: Int, frontmatter: String}
-function extractPreamble(contents) {
-    const content = fm(contents)
-    if (R.isNil(content.attributes.tags)) {
-        content.attributes.tags = []
-    }
-
-    if (typeof content.attributes.tags == "string") {
-        content.attributes.tags = content.attributes.tags.split(/\s+/)
-    }
-
-    return content
-}
-
-// String -> String
-function unquote(s) {
-    const startIndex = R.startsWith("\"", s) ? 1 : 0
-    const endIndex = R.endsWith("\"", s) ? R.length(s) - 1 : R.length(s)
-    return R.slice(startIndex, endIndex, s)
-}
-
 // String -> String
 const appendTitle = R.curry((title, s) => R.isNil(title) || R.isEmpty(title) ? s : s + " | " + title)
 
 // String -> {[<key>: String] }
 function parseMarkdown(contents) {
-    const { attributes, body } = extractPreamble(contents)
+    const { attributes, body } = extractFrontmatter(contents)
+    const toArray = (tags) => R.is(String, tags) ? R.split(/\s+/, tags) : R.defaultTo([], tags)
     const excerpt = R.pipe(removeMarkdown, R.slice(0, 500), R.concat(R.__, "..."))(body)
-    return R.mergeRight(attributes, { excerpt, markdown: body })
+    return R.mergeRight(R.evolve({tags: toArray}, attributes), {excerpt, markdown: body})
 }
 
 // String -> {[<key>: String]}
@@ -130,16 +110,14 @@ function readFile(unresolvedFileName) {
 
 // [PageConfig] ->  String -> String -> String -> HtmlPage/Effects
 const generatePageConfig = R.curry((pages, outputPath, siteTitle, pageFileName) => {
+    log(pageFileName)
     const mtime = Fs.lstatSync(Path.join("_pages", pageFileName)).mtime
     const ext = Path.extname(pageFileName)
     const existingPage = R.find(R.propEq("pageFileName", pageFileName), pages)
 
     if (R.isNil(existingPage) || mtime > existingPage.mtime) {
         const contents = readFile(Path.join("_pages", pageFileName))
-        let attrs = R.pipe(
-            ext == ".md" ? parseMarkdown : parseElmMarkup,
-            R.evolve({ title: unquote })
-        )(contents)
+        let attrs = ext == ".md" ? parseMarkdown(contents) : parseElmMarkup(contents)
 
         if (!R.isNil(attrs.contentSource)) {
             const transcludedContents = readFile(Path.join("_pages", attrs.contentSource + ext))
@@ -205,7 +183,7 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
                 const contents = Fs.readFileSync(Fs.realpathSync(postFileName)).toString()
                 const attrs = R.pipe(
                     ext == ".md" ? parseMarkdown : parseElmMarkup,
-                    R.evolve({ tags: R.pipe(R.map(R.trim), R.reject(R.isEmpty)), title: unquote })
+                    R.evolve({ tags: R.pipe(R.map(R.trim), R.reject(R.isEmpty)) })
                 )(contents)
                 const fileNameAttrs = parsePostFileName(outputPath, outputFileName)
 
@@ -285,8 +263,13 @@ const extractTags = R.pipe(
 )
 
 // String -> [PostHtmlPage] -> [PostHtmlPage]
-const getPostsWithTag = (tag, posts) =>
-    R.filter(R.pipe(R.prop("tags"), R.defaultTo([]), R.map(R.toLower), R.contains(R.toLower(tag))), posts)
+function getPostsWithTag(tag, posts) {
+    const filter = (post) => {
+        return !post.isIndex && R.pipe(R.defaultTo([]), R.map(R.toLower), R.contains(R.toLower(tag)))(post.tags)
+    }
+    return R.filter(filter, posts)
+}
+    
 
 // String -> String -> [PostHtmlPage] -> [TagPage]
 function generateTagPages(elmJs, outputPath, siteTitle, posts) {
@@ -296,7 +279,7 @@ function generateTagPages(elmJs, outputPath, siteTitle, posts) {
             layout: "Tag",
             markdown: "",
             outputPath: Path.join(outputPath, "tags", tag),
-            posts: getPostsWithTag(tag, posts),
+            posts: getPostsWithTag(tag, posts), 
             section: "",
             siteTitle: appendTitle(siteTitle, "Tag: " + tag),
             tag,
@@ -510,6 +493,7 @@ function buildSiteAndWatch(options) {
         catch (err) {
             if (!R.isEmpty(err.message)) {
                 log.error("\n" + err.message)
+                log.error(err.stack)
             }
             else
                 ; // No message means it's an `elm make` error, so it's already printed
@@ -576,8 +560,10 @@ try {
         flags.parse(process.argv)  // This invokes command & option callbacks 
 }
 catch (err) {
-    if (!R.isEmpty(err.message))
+    if (!R.isEmpty(err.message)) {
         log.error("\n" + err.message)
+        log.error(err.stack)
+    }
     else
         ; // No message means it's an elm make error, so it's already printed
     process.exitCode = 1
