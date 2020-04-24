@@ -431,12 +431,6 @@ function generateEverything(pages, posts, options) {
     })
 }
 
-// {includeDrafts: Bool} -> Promise {pages: [HtmlPage], posts: [HtmlPage]}/Effects
-function buildSite(options) {
-    log("Building the site" + (options.includeDrafts ? ", including draft content" : ""))
-    return generateEverything([], [], options)
-}
-
 // String -> String
 function humaniseFsEvent(event) {
     switch (event) {
@@ -493,40 +487,36 @@ function handleError(extraLogMessage) {
 
 // {includeDrafts: Bool} -> Promise {pages: [HtmlPage], posts: [HtmlPage]}/Effects
 function buildSiteOnce(options) {
-    buildSite(options)
+    log("Building the site" + (options.includeDrafts ? ", including draft content" : ""))
+    return generateEverything([], [], options)
         .then(() => workerPool.terminate())
         .catch(handleError())
 }
 
 // {includeDrafts: Bool} -> ()/Effects
 function buildSiteAndWatch(options) {
-    buildSite(options).then((result) => { 
-        let pages = result.pages
-        let posts = result.posts
-    
-        log("Ready! Watching for changes...")
-    
-        const watchPaths = ["_layouts", "_pages", "_posts", "_resources", "config.json", "elm.json"]
-        let watcher = Chokidar.watch(watchPaths, { ignoreInitial: true, followSymlinks: false })
-    
-        watcher.on("all", debounceFileEvents(100, (events) => {
-            try {
-                R.forEach((e) => { log.info(`${e.path} ${humaniseFsEvent(e.event)}`) }, events)
-                const layoutsChanged = R.any(R.pipe(R.prop("path"), R.startsWith("_layouts")), events)
-                generateEverything(layoutsChanged ? [] : pages, layoutsChanged ? [] : posts, options)
-                .then((result) => {
-                    pages = result.pages
-                    posts = result.posts
-                    log("Ready! Watching for more changes...")
-                })
-                .catch(handleError("Error! Watching for more changes..."))    
-            }
-            catch(err) {
-                handleError("Error! Watching for more changes...")(err)
-            }
-        }))
-    })
-    .catch(handleError())
+    let pages = [] 
+    let posts = [] 
+
+    const watchPaths = ["_layouts", "_pages", "_posts", "_resources", "config.json", "elm.json"]
+    let watcher = Chokidar.watch(watchPaths, { ignoreInitial: false, followSymlinks: false })
+
+    watcher.on("all", debounceFileEvents(100, (events) => {
+        try {
+            R.forEach((e) => { log.info(`${e.path} ${humaniseFsEvent(e.event)}`) }, events)
+            const layoutsChanged = R.any(R.pipe(R.prop("path"), R.startsWith("_layouts")), events)
+            generateEverything(layoutsChanged ? [] : pages, layoutsChanged ? [] : posts, options)
+            .then((result) => {
+                pages = result.pages
+                posts = result.posts
+                log("Ready! Watching for more changes...")
+            })
+            .catch(handleError("Error! Watching for more changes..."))    
+        }
+        catch(err) {
+            handleError("Error! Watching for more changes...")(err)
+        }
+    }))
 }
 
 // Bool -> ()/Effects
