@@ -3,10 +3,9 @@ const Chokidar = require("chokidar")
 const { Feed } = require("feed")
 const Fs = require("fs-extra")
 const Glob = require("glob")
-const JsDom = require("jsdom").JSDOM
 const Path = require("path")
 const R = require("ramda")
-const { Script } = require("vm")
+const WorkerPool = require("workerpool")
 const extractFrontmatter = require("front-matter")
 const flags = require("commander")
 const removeMarkdown = require("remove-markdown")
@@ -141,10 +140,18 @@ function generatePageConfigs(pages, outputPath, siteTitle, pageFileNames) {
     return R.map(generatePageConfig(pages, outputPath, siteTitle), pageFileNames)
 }
 
-
-// String -> [PostConfig] -> [HtmlPage]/Effects
+// String -> [PageOrPostConfig] -> Promise [HtmlPage]/Effects
 function generatePages(elmJs, pages) {
-    return R.map((page) => R.isNil(page.html) ? R.mergeRight(page, { html: generateHtml(elmJs, page) }) : page, pages)
+    const pagePromise = (page) => {
+        if (R.isNil(page.html)) {
+            log.info("    Generating " + page.outputPath)
+            return workerPool.exec(generateHtml, [elmJs, page]).then((html) => R.mergeRight(page, {html}))
+        }
+        else 
+            return Promise.resolve(page)
+    }
+            
+    return Promise.all(R.map(pagePromise, pages))
 }
 
 // String -> String -> {[<key>: Any]}
@@ -224,21 +231,20 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
     }, postConfigs)
 }
 
-// String -> [PostConfig] -> [PostHtmlPage]/Effects
-function generatePosts(elmJs, posts) {
-    return R.map((post) => R.isNil(post.html) ? R.mergeRight(post, { html: generateHtml(elmJs, post) }) : post, posts)
-}
-
 // String -> PageConfig | PostConfig -> HtmlString
+// Executed in the context of a worker, hence needs its own `require`s
 function generateHtml(elmJs, pageOrPost) {
-    log.info("    Generating " + pageOrPost.outputPath)
+    const JsDom = require("jsdom").JSDOM
+    const R = require("ramda")
+    const { Script } = require("vm")
+
     const script = new Script(`
     ${elmJs}; let app = Elm.${pageOrPost.layout}.init({flags: ${JSON.stringify(pageOrPost)}})
     `)
     const dom = new JsDom(`<!DOCTYPE html><html><body></body></html>`, {
         runScripts: "outside-only"
     })
-
+    
     dom.runVMScript(script)
     if (dom.window.document.title == "error")
         throw new Error(`Error in ${pageOrPost.inputPath}:\n${dom.window.document.body.firstChild.attributes[0].value}`)
@@ -269,10 +275,9 @@ function getPostsWithTag(tag, posts) {
     return R.filter(filter, posts)
 }
     
-
-// String -> String -> [PostHtmlPage] -> [TagPage]
+// String -> String -> [PostHtmlPage] -> Promise [TagPage]
 function generateTagPages(elmJs, outputPath, siteTitle, posts) {
-    return R.pipe(
+    return Promise.all(R.pipe(
         extractTags,
         R.map((tag) => ({
             layout: "Tag",
@@ -284,8 +289,11 @@ function generateTagPages(elmJs, outputPath, siteTitle, posts) {
             tag,
             title: "Tag: " + tag
         })),
-        R.map((page) => R.mergeRight(page, { html: generateHtml(elmJs, page) }))
-    )(posts)
+        R.map((page) => {
+            log.info("    Generating " + page.outputPath)
+            return workerPool.exec(generateHtml, [elmJs, page]).then((html) => R.mergeRight(page, {html}))
+        })
+    )(posts))
 }
 
 // [PostHtmlPage] -> [String]
@@ -352,7 +360,7 @@ function copyResources(outputPath) {
         ; // Do nothing - resources directory not present
 }
 
-// [PageConfig] -> [PostConfig] -> {includeDrafts: Bool} -> ()/Effects
+// [PageConfig] -> [PostConfig] -> {includeDrafts: Bool} -> Promise {pages: [HtmlPage], posts: [HtmlPage]}/Effects
 function generateEverything(pages, posts, options) {
     // Dependencies between different inputs and outputs look something like this, 
     // (ie to build elm.js we need to read all page/post content to get both 
@@ -387,43 +395,43 @@ function generateEverything(pages, posts, options) {
     log("  Compiling layouts")
     const elmJs = buildLayouts(config.elm, layouts)
 
-    log("  Generating pages")
-    const newPagesWithHtml = generatePages(elmJs, newPages)
-
-    log("  Generating posts")
-    const newPostsWithHtml = generatePosts(elmJs, newPosts)
-
-    log("  Generating tag pages")
-    const tagPages = generateTagPages(elmJs, config.outputDir, config.siteTitle, newPosts)
-
-    const dotGitPath = Path.join(config.outputDir, ".git")
-    const dotGitContent = Fs.pathExistsSync(dotGitPath) ?
-        Fs.readFileSync(Path.join(config.outputDir, ".git")).toString() : null
-
-    log(`  Cleaning out the output path (${config.outputDir})`)
-    Fs.emptyDirSync(config.outputDir)
-
-    if (R.is(String, dotGitContent))
-        Fs.writeFileSync(dotGitPath, dotGitContent)
-    else
-        ; // Do nothing, no .git file existed
-
-    log("  Writing HTML")
-    R.forEach(writeHtmlPage, newPagesWithHtml)
-    R.forEach(writeHtmlPage, newPostsWithHtml)
-    R.forEach(writeHtmlPage, tagPages)
-
-    log("  Generating feeds")
-    generateFeeds(config.feed, config.outputDir, R.reject(R.propEq("isIndex", true), newPosts))
-    log("  Duplicating pages")
-    duplicatePages(config.copy, config.outputDir)
-    log("  Copying resources")
-    copyResources(config.outputDir)
-
-    return { pages: newPagesWithHtml, posts: newPostsWithHtml }
+    log("  Generating pages and posts")
+    return Promise.all([
+        generatePages(elmJs, newPages), 
+        generatePages(elmJs, newPosts),
+        generateTagPages(elmJs, config.outputDir, config.siteTitle, newPosts)
+    ])
+    .then((result) => {
+        [newPagesWithHtml, newPostsWithHtml, tagPages] = result 
+        const dotGitPath = Path.join(config.outputDir, ".git")
+        const dotGitContent = Fs.pathExistsSync(dotGitPath) ?
+            Fs.readFileSync(Path.join(config.outputDir, ".git")).toString() : null
+    
+        log(`  Cleaning out the output path (${config.outputDir})`)
+        Fs.emptyDirSync(config.outputDir)
+    
+        if (R.is(String, dotGitContent))
+            Fs.writeFileSync(dotGitPath, dotGitContent)
+        else
+            ; // Do nothing, no .git file existed
+    
+        log("  Writing HTML")
+        R.forEach(writeHtmlPage, newPagesWithHtml)
+        R.forEach(writeHtmlPage, newPostsWithHtml)
+        R.forEach(writeHtmlPage, tagPages)
+    
+        log("  Generating feeds")
+        generateFeeds(config.feed, config.outputDir, R.reject(R.propEq("isIndex", true), newPosts))
+        log("  Duplicating pages")
+        duplicatePages(config.copy, config.outputDir)
+        log("  Copying resources")
+        copyResources(config.outputDir)
+    
+        return { pages: newPagesWithHtml, posts: newPostsWithHtml }
+    })
 }
 
-// {includeDrafts: Bool} -> {pages: [HtmlPage], posts: [HtmlPage]}/Effects
+// {includeDrafts: Bool} -> Promise {pages: [HtmlPage], posts: [HtmlPage]}/Effects
 function buildSite(options) {
     log("Building the site" + (options.includeDrafts ? ", including draft content" : ""))
     return generateEverything([], [], options)
@@ -468,38 +476,57 @@ function debounceFileEvents(delay, func) {
     }
 }
 
+function handleError(extraLogMessage) {
+    return (err) => {
+        if (!R.isEmpty(err.message)) {
+            log.error("\n" + err.stack)
+        }
+        else
+            ; // No message means it's an `elm make` error, so it's already printed    
+
+        if (!R.isNil(extraLogMessage)) 
+            log(extraLogMessage)
+        else
+            ; // No extra message to display
+    }
+}
+
+// {includeDrafts: Bool} -> Promise {pages: [HtmlPage], posts: [HtmlPage]}/Effects
+function buildSiteOnce(options) {
+    buildSite(options)
+        .then(() => workerPool.terminate())
+        .catch(handleError())
+}
+
 // {includeDrafts: Bool} -> ()/Effects
 function buildSiteAndWatch(options) {
-    const result = buildSite(options)
-    let pages = result.pages
-    let posts = result.posts
-
-    log("Ready! Watching for changes...")
-
-    const watchPaths = ["_layouts", "_pages", "_posts", "_resources", "config.json", "elm.json"]
-    let watcher = Chokidar.watch(watchPaths, { ignoreInitial: true, followSymlinks: false })
-
-    watcher.on("all", debounceFileEvents(100, (events) => {
-        try {  // The try block is needed to prevent Node printing a stack trace on exception
-            R.forEach((e) => { log.info(`${e.path} ${humaniseFsEvent(e.event)}`) }, events)
-
-            const layoutsChanged = R.any(R.pipe(R.prop("path"), R.startsWith("_layouts")), events)
-            const result = generateEverything(layoutsChanged ? [] : pages, layoutsChanged ? [] : posts, options)
-            pages = result.pages
-            posts = result.posts
-            log("Ready! Watching for more changes...")
-        }
-        catch (err) {
-            if (!R.isEmpty(err.message)) {
-                log.error("\n" + err.message)
-                log.error(err.stack)
+    buildSite(options).then((result) => { 
+        let pages = result.pages
+        let posts = result.posts
+    
+        log("Ready! Watching for changes...")
+    
+        const watchPaths = ["_layouts", "_pages", "_posts", "_resources", "config.json", "elm.json"]
+        let watcher = Chokidar.watch(watchPaths, { ignoreInitial: true, followSymlinks: false })
+    
+        watcher.on("all", debounceFileEvents(100, (events) => {
+            try {
+                R.forEach((e) => { log.info(`${e.path} ${humaniseFsEvent(e.event)}`) }, events)
+                const layoutsChanged = R.any(R.pipe(R.prop("path"), R.startsWith("_layouts")), events)
+                generateEverything(layoutsChanged ? [] : pages, layoutsChanged ? [] : posts, options)
+                .then((result) => {
+                    pages = result.pages
+                    posts = result.posts
+                    log("Ready! Watching for more changes...")
+                })
+                .catch(handleError("Error! Watching for more changes..."))    
             }
-            else
-                ; // No message means it's an `elm make` error, so it's already printed
-            log("Error! Watching for more changes...")
-        }
-
-    }))
+            catch(err) {
+                handleError("Error! Watching for more changes...")(err)
+            }
+        }))
+    })
+    .catch(handleError())
 }
 
 // Bool -> ()/Effects
@@ -518,52 +545,49 @@ const log = console.log
 log.error = console.error
 log.info = () => {}
 
+const workerPool = WorkerPool.pool()
+
 // LogObject -> ()/Effects
 const enableVerboseLogging = R.curry((log, isVerbose) => log.info = console.info)
 
 
 // ACTION STARTS HERE
 
-flags
-    .version(JSON.parse(Fs.readFileSync(Path.join(__dirname, "..", "package.json")).toString()).version)
-    .usage(
-        `[command] [options]
-  -> Elmstatic has to be run from the site directory.
-  --> Run elmstatic <command> -h to see command-specific options.
-  ---> See https://korban.net/elm/elmstatic for more information.
-        `)
-    .option("-v, --verbose", "show more information when generating output", enableVerboseLogging(log))
-
-flags
-    .command("init")
-    .description("Generate a scaffold for a new site in the current directory")
-    .option("--elm-markup", "provide an elm-markup scaffold instead of the default Markdown")
-    .action((cmd) => generateScaffold({ forElmMarkup: cmd.elmMarkup }))
-
-flags
-    .command("watch")
-    .description("Watch for source file changes and rebuild the site incrementally")
-    .option("-d, --drafts", "include draft (future dated) posts")
-    .action((cmd) => buildSiteAndWatch({ includeDrafts: cmd.drafts }))
-
-flags
-    .command("build")
-    .description("Build the site (runs by default if no command is supplied)")
-    .option("-d, --drafts", "include draft (future dated) posts")
-    .action((cmd) => buildSite({ includeDrafts: cmd.drafts }))
-
 try {
+    flags
+        .version(JSON.parse(Fs.readFileSync(Path.join(__dirname, "..", "package.json")).toString()).version)
+        .usage(
+            `[command] [options]
+    -> Elmstatic has to be run from the site directory.
+    --> Run elmstatic <command> -h to see command-specific options.
+    ---> See https://korban.net/elm/elmstatic for more information.
+            `)
+        .option("-v, --verbose", "show more information when generating output", enableVerboseLogging(log))
+
+    flags
+        .command("init")
+        .description("Generate a scaffold for a new site in the current directory")
+        .option("--elm-markup", "provide an elm-markup scaffold instead of the default Markdown")
+        .action((cmd) => generateScaffold({ forElmMarkup: cmd.elmMarkup }))
+
+    flags
+        .command("watch")
+        .description("Watch for source file changes and rebuild the site incrementally")
+        .option("-d, --drafts", "include draft (future dated) posts")
+        .action((cmd) => buildSiteAndWatch({ includeDrafts: cmd.drafts }))
+
+    flags
+        .command("build")
+        .description("Build the site (runs by default if no command is supplied)")
+        .option("-d, --drafts", "include draft (future dated) posts")
+        .action((cmd) => buildSiteOnce({ includeDrafts: cmd.drafts }))
+
     if (process.argv.length < 3)
-        buildSite({ includeDrafts: false })
+        buildSiteOnce({ includeDrafts: false })
     else
         flags.parse(process.argv)  // This invokes command & option callbacks 
 }
 catch (err) {
-    if (!R.isEmpty(err.message)) {
-        log.error("\n" + err.message)
-        log.error(err.stack)
-    }
-    else
-        ; // No message means it's an elm make error, so it's already printed
+    handleError()(err)
     process.exitCode = 1
 }

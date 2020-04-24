@@ -1,6 +1,6 @@
 {
   "name": "elmstatic",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "description": "Elm-to-HTML static site generator",
   "homepage": "https://korban.net/elm/elmstatic",
   "repository": "github:alexkorban/elmstatic",
@@ -26,6 +26,7 @@
     "glob": "^7.1.6",
     "jsdom": "^13.2.0",
     "ramda": "^0.26.0",
-    "remove-markdown": "^0.3.0"
+    "remove-markdown": "^0.3.0",
+    "workerpool": "^5.0.4"
   }
 }
