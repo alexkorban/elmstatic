@@ -54,9 +54,8 @@ const appendTitle = R.curry((title, s) => R.isNil(title) || R.isEmpty(title) ? s
 // String -> {[<key>: String] }
 function parseMarkdown(contents) {
     const { attributes, body } = extractFrontmatter(contents)
-    const toArray = (tags) => R.is(String, tags) ? R.split(/\s+/, tags) : R.defaultTo([], tags)
     const excerpt = R.pipe(removeMarkdown, R.slice(0, 500), R.concat(R.__, "..."))(body)
-    return R.mergeRight(R.evolve({tags: toArray}, attributes), {excerpt, markdown: body})
+    return R.mergeRight(attributes, {excerpt, markdown: body})
 }
 
 // String -> {[<key>: String]}
@@ -173,6 +172,9 @@ function parsePostFileName(outputPath, postFileName) {
     }
 }
 
+// String|Object -> [String]|Object
+const strToArray = (tags) => R.is(String, tags) ? R.split(/\s+/, tags) : R.defaultTo([], tags)
+
 // [PostConfig] -> String -> String -> [String] -> Bool -> [String] -> [PostHtmlPage]/Effects
 function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeDrafts, postFileNames) {
     const draftFilter = includeDrafts ? R.identity :
@@ -189,7 +191,7 @@ function generatePostConfigs(posts, outputPath, siteTitle, allowedTags, includeD
                 const contents = Fs.readFileSync(Fs.realpathSync(postFileName)).toString()
                 const attrs = R.pipe(
                     ext == ".md" ? parseMarkdown : parseElmMarkup,
-                    R.evolve({ tags: R.pipe(R.map(R.trim), R.reject(R.isEmpty)) })
+                    R.evolve({ tags: R.pipe(strToArray, R.map(R.trim), R.reject(R.isEmpty)) })
                 )(contents)
                 const fileNameAttrs = parsePostFileName(outputPath, outputFileName)
 
