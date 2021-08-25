@@ -336,8 +336,10 @@ function generateFeeds(feedConfig, outputPath, posts) {
     generateFeed(outputPath, R.mergeRight(feedConfig, { isSectionFeed: false }), posts)
 
     R.forEach((section) => {
+        const sectionPath = Path.join(outputPath, section)
+        Fs.mkdirsSync(sectionPath)
         generateFeed(
-            Path.join(outputPath, section),
+            sectionPath,
             R.evolve({
                 title: R.concat(R.__, `/${section}`),
                 id: R.concat(R.__, `/${section}`),
