@@ -1,6 +1,6 @@
 {
   "name": "elmstatic",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Elm-to-HTML static site generator",
   "homepage": "https://korban.net/elm/elmstatic",
   "repository": "github:alexkorban/elmstatic",
@@ -12,7 +12,7 @@
     "start": "$npm_package_bin_elmstatic",
     "test-markdown": "rm -rf $GITHUB_WORKSPACE/test-run && mkdir $GITHUB_WORKSPACE/test-run && cd $GITHUB_WORKSPACE/test-run && $INIT_CWD/bin/elmstatic.js init && $INIT_CWD/bin/elmstatic.js build",
     "test-elm-markup": "rm -rf $GITHUB_WORKSPACE/test-run && mkdir $GITHUB_WORKSPACE/test-run && cd $GITHUB_WORKSPACE/test-run && $INIT_CWD/bin/elmstatic.js init --elm-markup && $INIT_CWD/bin/elmstatic.js build",
-    "test": "npm run test-markdown && npm run test-elm-markup", 
+    "test": "npm run test-markdown && npm run test-elm-markup",
     "test-local": "GITHUB_WORKSPACE=. INIT_CWD=. npm run test"
   },
   "author": "Alex Korban (https://korban.net/elm)",
