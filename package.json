@@ -25,7 +25,7 @@
     "front-matter": "^3.1.0",
     "fs-extra": "^7.0.0",
     "glob": "^7.1.6",
-    "jsdom": "^13.2.0",
+    "jsdom": "^16.5.0",
     "ramda": "^0.26.0",
     "remove-markdown": "^0.3.0",
     "workerpool": "^5.0.4"
